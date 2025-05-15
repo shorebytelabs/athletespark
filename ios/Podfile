@@ -1,9 +1,11 @@
 # Resolve react_native_pods.rb with node to allow for hoisting
-require Pod::Executable.execute_command('node', ['-p',
-  'require.resolve(
-    "react-native/scripts/react_native_pods.rb",
-    {paths: [process.argv[1]]},
-  )', __dir__]).strip
+# require Pod::Executable.execute_command('node', ['-p',
+#   'require.resolve(
+#     "react-native/scripts/react_native_pods.rb",
+#     {paths: [process.argv[1]]},
+#   )', __dir__]).strip
+
+require_relative '../node_modules/react-native/scripts/react_native_pods'
 
 platform :ios, min_ios_version_supported
 prepare_react_native_project!
@@ -22,7 +24,9 @@ target 'athletespark' do
     # An absolute path to your application root.
     :app_path => "#{Pod::Config.instance.installation_root}/..",
     :hermes_enabled => false,
-    :fabric_enabled => true
+    :fabric_enabled => false
+    #:codegen_enabled => true
+
   )
 
   post_install do |installer|

@@ -1,26 +1,12 @@
-// App.js
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { SafeAreaView, StatusBar } from 'react-native';
+import AppNavigator from './src/navigation/AppNavigator';
 
-const App = () => {
+export default function App() {
   return (
-    <View style={styles.container}>
-      <Text style={styles.text}>⚽️ Welcome to Athlete Spark!</Text>
-    </View>
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+      <StatusBar barStyle="dark-content" />
+      <AppNavigator />
+    </SafeAreaView>
   );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#fff',
-  },
-  text: {
-    fontSize: 24,
-    fontWeight: '600',
-  },
-});
-
-export default App;
+}
