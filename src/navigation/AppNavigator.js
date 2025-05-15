@@ -7,6 +7,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import SettingsScreen from '../screens/Settings/SettingsScreen';
 import HomeScreen from '../screens/Home/HomeScreen';
 import { NavigationContainer } from '@react-navigation/native';
+import CreateProjectScreen from '../screens/CreateProject/CreateProjectScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -15,17 +16,24 @@ function CustomTabBarButton({ onPress }) {
   return (
     <TouchableOpacity
       onPress={onPress}
+      activeOpacity={0.8}
       style={{
         backgroundColor: '#000',
-        borderRadius: 30,
-        padding: 10,
-        marginBottom: 20
+        borderRadius: 40,
+        width: 45,
+        height: 45,
+        marginBottom: 40,
+        borderWidth: 6,
+        borderColor: '#ccc',
+        alignItems: 'center',
+        justifyContent: 'center',
       }}
     >
-      <Text style={{ color: '#fff', fontSize: 24 }}>＋</Text>
+      <Text style={{ color: 'white', fontSize: 28, fontWeight: 'bold' }}>+</Text>
     </TouchableOpacity>
   );
 }
+
 
 function Tabs() {
   return (
@@ -51,6 +59,7 @@ export default function AppNavigator() {
       <Stack.Navigator>
         <Stack.Screen name="Main" component={Tabs} options={{ headerShown: false }} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
+        <Stack.Screen name="CreateProject" component={CreateProjectScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

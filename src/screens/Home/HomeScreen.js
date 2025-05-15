@@ -1,17 +1,17 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Button, StyleSheet } from 'react-native';
 
-const HomeScreen = () => {
+export default function HomeScreen({ navigation }) {
   return (
     <View style={styles.container}>
-      <Text style={styles.text}>Create Highlight</Text>
+      <Button
+        title="Start New Project"
+        onPress={() => navigation.navigate('CreateProject')}
+      />
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  text: { fontSize: 20 }
 });
-
-export default HomeScreen;
