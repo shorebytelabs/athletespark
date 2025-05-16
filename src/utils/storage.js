@@ -9,7 +9,9 @@ export async function getAllProjects() {
 
 export async function saveProject(newProject) {
   const existingProjects = await getAllProjects();
-  const updatedProjects = [newProject, ...existingProjects];
+  // Remove any existing project with the same id to avoid duplicates
+  const filtered = existingProjects.filter(p => p.id !== newProject.id);
+  const updatedProjects = [newProject, ...filtered];
   await AsyncStorage.setItem(PROJECTS_KEY, JSON.stringify(updatedProjects));
 }
 

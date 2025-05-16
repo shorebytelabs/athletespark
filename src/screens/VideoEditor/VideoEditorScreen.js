@@ -11,6 +11,8 @@ import {
   ScrollView,
   SafeAreaView,
 } from 'react-native';
+
+import { updateProject } from '../../utils/storage'; // import updateProject for saving changes
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const defaultCategories = [
@@ -27,9 +29,10 @@ const CUSTOM_CATEGORIES_KEY = 'CUSTOM_CATEGORIES';
 
 export default function VideoEditorScreen({ route, navigation }) {
   const { project } = route.params;
-  const [clips, setClips] = useState(
-    project.clips.map((clip) => ({ ...clip, category: null }))
-  );
+
+  // Initialize clips with existing categories preserved
+  const [clips, setClips] = useState(project.clips);
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [trackingEnabled, setTrackingEnabled] = useState(false);
 
@@ -65,7 +68,7 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const currentClip = clips[currentIndex];
 
-  const assignCategory = (category) => {
+  const assignCategory = async (category) => {
     if (category === 'Other / Create New') {
       setNewCategoryName('');
       setModalVisible(true);
@@ -74,6 +77,14 @@ export default function VideoEditorScreen({ route, navigation }) {
     const updatedClips = [...clips];
     updatedClips[currentIndex].category = category;
     setClips(updatedClips);
+
+    // Persist the updated project with updated clips
+    const updatedProject = { ...project, clips: updatedClips };
+    try {
+      await updateProject(updatedProject);
+    } catch (e) {
+      console.error('Failed to update project with new category', e);
+    }
   };
 
   const addCustomCategory = () => {
@@ -101,14 +112,22 @@ export default function VideoEditorScreen({ route, navigation }) {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
+          onPress: async () => {
             const updated = customCategories.filter((cat) => cat !== categoryToDelete);
-            saveCustomCategories(updated);
-            setClips((prevClips) =>
-              prevClips.map((clip) =>
-                clip.category === categoryToDelete ? { ...clip, category: null } : clip
-              )
+            await saveCustomCategories(updated);
+
+            const updatedClips = clips.map((clip) =>
+              clip.category === categoryToDelete ? { ...clip, category: null } : clip
             );
+            setClips(updatedClips);
+
+            // Persist updated clips after category deletion
+            const updatedProject = { ...project, clips: updatedClips };
+            try {
+              await updateProject(updatedProject);
+            } catch (e) {
+              console.error('Failed to update project after deleting category', e);
+            }
           },
         },
       ]
@@ -256,73 +275,59 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#999',
     backgroundColor: '#eee',
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   categoryButtonSelected: {
-    backgroundColor: '#007AFF',
+    backgroundColor: '#3b82f6',
+    borderColor: '#2563eb',
   },
-  categoryButtonText: {
-    fontSize: 12,
-    color: '#333',
-  },
-  categoryButtonTextSelected: {
-    color: '#fff',
-  },
+  categoryButtonText: { fontSize: 14, color: '#333' },
+  categoryButtonTextSelected: { color: '#fff', fontWeight: 'bold' },
   deleteIconContainer: {
     position: 'absolute',
-    top: -6,
-    right: -6,
+    top: -8,
+    right: -8,
     backgroundColor: '#999',
     borderRadius: 10,
     width: 20,
     height: 20,
-    alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 1,
+    alignItems: 'center',
   },
   deleteIcon: {
-    color: '#fff',
+    color: 'white',
+    fontWeight: 'bold',
     fontSize: 14,
-    lineHeight: 16,
+    lineHeight: 14,
+  },
+  trackingContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 16,
   },
   navButtonsFloating: {
     position: 'absolute',
-    bottom: 16,
+    bottom: 12,
     left: 16,
     right: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 4,
-  },
-  trackingContainer: {
-    marginTop: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 32,
   },
   modalContainer: {
     backgroundColor: 'white',
-    padding: 20,
-    borderRadius: 12,
-    elevation: 5,
+    borderRadius: 8,
+    padding: 24,
   },
   input: {
-    borderColor: '#ccc',
+    borderColor: '#999',
     borderWidth: 1,
     borderRadius: 6,
     paddingHorizontal: 12,
