@@ -5,10 +5,11 @@ import {
   Button,
   StyleSheet,
   TouchableOpacity,
-  ScrollView,
   Alert,
   TextInput,
   Modal,
+  ScrollView,
+  SafeAreaView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -94,7 +95,7 @@ export default function VideoEditorScreen({ route, navigation }) {
   const deleteCustomCategory = (categoryToDelete) => {
     Alert.alert(
       'Delete Category',
-      `Are you sure you want to delete the category "${categoryToDelete}"? This will remove it from the list.`,
+      `Are you sure you want to delete the category "${categoryToDelete}"?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -103,7 +104,6 @@ export default function VideoEditorScreen({ route, navigation }) {
           onPress: () => {
             const updated = customCategories.filter((cat) => cat !== categoryToDelete);
             saveCustomCategories(updated);
-            // Also remove category from any clips assigned
             setClips((prevClips) =>
               prevClips.map((clip) =>
                 clip.category === categoryToDelete ? { ...clip, category: null } : clip
@@ -125,103 +125,113 @@ export default function VideoEditorScreen({ route, navigation }) {
   };
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>
-        {project.name} - Clip {currentIndex + 1} / {clips.length}
-      </Text>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.container}>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <Text style={styles.title}>
+            {project.name} - Clip {currentIndex + 1} / {clips.length}
+          </Text>
 
-      {/* Video Player Placeholder */}
-      <View style={styles.videoContainer}>
-        <Text style={{ marginBottom: 10 }}>
-          (Video playback would be here for URI: {currentClip.uri})
-        </Text>
-      </View>
+          {/* Video Player Placeholder */}
+          <View style={styles.videoContainer}>
+            <Text>(Video playback would be here for URI: {currentClip.uri})</Text>
+          </View>
 
-      {/* Categories */}
-      <Text style={styles.subtitle}>Select Category:</Text>
-      <ScrollView horizontal contentContainerStyle={styles.categoryList}>
-        {allCategories.map((cat) => {
-          const isCustom = customCategories.includes(cat);
-          return (
-            <View key={cat} style={styles.categoryWrapper}>
-              <TouchableOpacity
-                style={[
-                  styles.categoryButton,
-                  currentClip.category === cat && styles.categoryButtonSelected,
-                ]}
-                onPress={() => assignCategory(cat)}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.categoryButtonText,
-                    currentClip.category === cat && styles.categoryButtonTextSelected,
-                  ]}
-                >
-                  {cat}
-                </Text>
-              </TouchableOpacity>
-              {isCustom && (
-                <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={() => deleteCustomCategory(cat)}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Text style={styles.deleteButtonText}>×</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          );
-        })}
-      </ScrollView>
+          {/* Categories */}
+          <Text style={styles.subtitle}>Select Category:</Text>
+          <View style={styles.categoryList}>
+            {allCategories.map((cat) => {
+              const isCustom = customCategories.includes(cat);
+              const isSelected = currentClip.category === cat;
+              return (
+                <View key={cat} style={styles.categoryWrapper}>
+                  <TouchableOpacity
+                    style={[
+                      styles.categoryButton,
+                      isSelected && styles.categoryButtonSelected,
+                    ]}
+                    onPress={() => assignCategory(cat)}
+                  >
+                    <Text
+                      style={[
+                        styles.categoryButtonText,
+                        isSelected && styles.categoryButtonTextSelected,
+                      ]}
+                    >
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                  {isCustom && (
+                    <TouchableOpacity
+                      onPress={() => deleteCustomCategory(cat)}
+                      style={styles.deleteIconContainer}
+                    >
+                      <Text style={styles.deleteIcon}>×</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            })}
+          </View>
 
-      {/* Navigation Buttons */}
-      <View style={styles.navButtons}>
-        <Button title="Previous" onPress={goPrev} disabled={currentIndex === 0} />
-        <Button title="Next" onPress={goNext} />
-      </View>
-
-      {/* Tracking toggle */}
-      <View style={styles.trackingContainer}>
-        <Text>Athlete Tracking:</Text>
-        <Button
-          title={trackingEnabled ? 'Disable' : 'Enable'}
-          onPress={() => setTrackingEnabled(!trackingEnabled)}
-        />
-      </View>
-
-      {/* Modal for creating new category */}
-      <Modal
-        animationType="slide"
-        transparent={true}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={{ fontWeight: 'bold', fontSize: 18, marginBottom: 12 }}>
-              Create New Category
-            </Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Category name"
-              value={newCategoryName}
-              onChangeText={setNewCategoryName}
-              autoFocus
+          {/* Tracking toggle */}
+          <View style={styles.trackingContainer}>
+            <Text>Athlete Tracking:</Text>
+            <Button
+              title={trackingEnabled ? 'Disable' : 'Enable'}
+              onPress={() => setTrackingEnabled(!trackingEnabled)}
             />
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
-              <Button title="Cancel" onPress={() => setModalVisible(false)} />
-              <Button title="Add" onPress={addCustomCategory} />
+          </View>
+
+          {/* Add padding so last content is visible above floating buttons */}
+          <View style={{ height: 80 }} />
+        </ScrollView>
+
+        {/* Floating Navigation Buttons */}
+        <View style={styles.navButtonsFloating}>
+          <Button title="Previous" onPress={goPrev} disabled={currentIndex === 0} />
+          <Button title="Next" onPress={goNext} />
+        </View>
+
+        {/* Modal for creating new category */}
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={modalVisible}
+          onRequestClose={() => setModalVisible(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContainer}>
+              <Text style={{ fontWeight: 'bold', fontSize: 18, marginBottom: 12 }}>
+                Create New Category
+              </Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Category name"
+                value={newCategoryName}
+                onChangeText={setNewCategoryName}
+                autoFocus
+              />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
+                <Button title="Cancel" onPress={() => setModalVisible(false)} />
+                <Button title="Add" onPress={addCustomCategory} />
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
-    </View>
+        </Modal>
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#fff' },
+  safeArea: { flex: 1, backgroundColor: '#fff' },
+  container: { flex: 1, position: 'relative' },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 80, // Prevent overlap with nav buttons
+  },
   title: { fontSize: 20, fontWeight: 'bold', marginBottom: 12 },
   videoContainer: {
     height: 200,
@@ -230,49 +240,68 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  subtitle: { fontSize: 16, marginBottom: 8 },
-  categoryList: { paddingVertical: 8 },
+  subtitle: { fontSize: 14, marginBottom: 4 },
+  categoryList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
   categoryWrapper: {
     position: 'relative',
-    marginRight: 10,
+    marginRight: 8,
+    marginBottom: 8,
   },
   categoryButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
     backgroundColor: '#eee',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   categoryButtonSelected: {
     backgroundColor: '#007AFF',
   },
   categoryButtonText: {
+    fontSize: 12,
     color: '#333',
   },
   categoryButtonTextSelected: {
     color: '#fff',
   },
-  deleteButton: {
+  deleteIconContainer: {
     position: 'absolute',
     top: -6,
     right: -6,
-    backgroundColor: '#888888', //'#ff4d4d',
-    borderRadius: 12,
-    width: 22,
-    height: 22,
-    justifyContent: 'center',
+    backgroundColor: '#999',
+    borderRadius: 10,
+    width: 20,
+    height: 20,
     alignItems: 'center',
-    zIndex: 10,
+    justifyContent: 'center',
+    zIndex: 1,
   },
-  deleteButtonText: {
-    color: 'white',
-    fontWeight: 'bold',
-    fontSize: 16,
+  deleteIcon: {
+    color: '#fff',
+    fontSize: 14,
     lineHeight: 16,
   },
-  navButtons: {
+  navButtonsFloating: {
+    position: 'absolute',
+    bottom: 16,
+    left: 16,
+    right: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 16,
+    backgroundColor: '#fff',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
   },
   trackingContainer: {
     marginTop: 20,
