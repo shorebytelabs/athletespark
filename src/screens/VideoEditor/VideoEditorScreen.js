@@ -11,8 +11,6 @@ import {
   ScrollView,
   SafeAreaView,
 } from 'react-native';
-
-import { updateProject } from '../../utils/storage'; // import updateProject for saving changes
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const defaultCategories = [
@@ -29,10 +27,9 @@ const CUSTOM_CATEGORIES_KEY = 'CUSTOM_CATEGORIES';
 
 export default function VideoEditorScreen({ route, navigation }) {
   const { project } = route.params;
-
-  // Initialize clips with existing categories preserved
-  const [clips, setClips] = useState(project.clips);
-
+  const [clips, setClips] = useState(
+    project.clips.map((clip) => ({ ...clip, category: null }))
+  );
   const [currentIndex, setCurrentIndex] = useState(0);
   const [trackingEnabled, setTrackingEnabled] = useState(false);
 
@@ -64,11 +61,15 @@ export default function VideoEditorScreen({ route, navigation }) {
     }
   };
 
-  const allCategories = [...defaultCategories.slice(0, -1), ...customCategories, 'Other / Create New'];
+  const allCategories = [
+    ...defaultCategories.slice(0, -1),
+    ...customCategories,
+    'Other / Create New',
+  ];
 
   const currentClip = clips[currentIndex];
 
-  const assignCategory = async (category) => {
+  const assignCategory = (category) => {
     if (category === 'Other / Create New') {
       setNewCategoryName('');
       setModalVisible(true);
@@ -77,14 +78,6 @@ export default function VideoEditorScreen({ route, navigation }) {
     const updatedClips = [...clips];
     updatedClips[currentIndex].category = category;
     setClips(updatedClips);
-
-    // Persist the updated project with updated clips
-    const updatedProject = { ...project, clips: updatedClips };
-    try {
-      await updateProject(updatedProject);
-    } catch (e) {
-      console.error('Failed to update project with new category', e);
-    }
   };
 
   const addCustomCategory = () => {
@@ -112,22 +105,14 @@ export default function VideoEditorScreen({ route, navigation }) {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: async () => {
+          onPress: () => {
             const updated = customCategories.filter((cat) => cat !== categoryToDelete);
-            await saveCustomCategories(updated);
-
-            const updatedClips = clips.map((clip) =>
-              clip.category === categoryToDelete ? { ...clip, category: null } : clip
+            saveCustomCategories(updated);
+            setClips((prevClips) =>
+              prevClips.map((clip) =>
+                clip.category === categoryToDelete ? { ...clip, category: null } : clip
+              )
             );
-            setClips(updatedClips);
-
-            // Persist updated clips after category deletion
-            const updatedProject = { ...project, clips: updatedClips };
-            try {
-              await updateProject(updatedProject);
-            } catch (e) {
-              console.error('Failed to update project after deleting category', e);
-            }
           },
         },
       ]
@@ -206,8 +191,8 @@ export default function VideoEditorScreen({ route, navigation }) {
           <View style={{ height: 80 }} />
         </ScrollView>
 
-        {/* Floating Navigation Buttons */}
-        <View style={styles.navButtonsFloating}>
+        {/* Fixed footer navigation buttons */}
+        <View style={styles.navButtonsFixed}>
           <Button title="Previous" onPress={goPrev} disabled={currentIndex === 0} />
           <Button title="Next" onPress={goNext} />
         </View>
@@ -231,7 +216,9 @@ export default function VideoEditorScreen({ route, navigation }) {
                 onChangeText={setNewCategoryName}
                 autoFocus
               />
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
+              <View
+                style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}
+              >
                 <Button title="Cancel" onPress={() => setModalVisible(false)} />
                 <Button title="Add" onPress={addCustomCategory} />
               </View>
@@ -249,7 +236,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 80, // Prevent overlap with nav buttons
+    paddingBottom: 80, // space for fixed footer buttons
   },
   title: { fontSize: 20, fontWeight: 'bold', marginBottom: 12 },
   videoContainer: {
@@ -275,59 +262,76 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#999',
     backgroundColor: '#eee',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   categoryButtonSelected: {
-    backgroundColor: '#3b82f6',
-    borderColor: '#2563eb',
+    backgroundColor: '#007AFF',
   },
-  categoryButtonText: { fontSize: 14, color: '#333' },
-  categoryButtonTextSelected: { color: '#fff', fontWeight: 'bold' },
+  categoryButtonText: {
+    fontSize: 12,
+    color: '#333',
+  },
+  categoryButtonTextSelected: {
+    color: '#fff',
+  },
   deleteIconContainer: {
     position: 'absolute',
     top: -8,
     right: -8,
-    backgroundColor: '#999',
+    backgroundColor: '#eee', // light gray background
     borderRadius: 10,
     width: 20,
     height: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#999', // gray border to match category outline
+    zIndex: 1,
   },
   deleteIcon: {
-    color: 'white',
+    color: '#666', // gray color for the "×"
     fontWeight: 'bold',
     fontSize: 14,
     lineHeight: 14,
   },
-  trackingContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: 16,
-  },
-  navButtonsFloating: {
+  navButtonsFixed: {
     position: 'absolute',
-    bottom: 12,
+    bottom: 16,
     left: 16,
     right: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
+    backgroundColor: '#fff',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  trackingContainer: {
+    marginTop: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
-    paddingHorizontal: 32,
+    paddingHorizontal: 24,
   },
   modalContainer: {
     backgroundColor: 'white',
-    borderRadius: 8,
-    padding: 24,
+    padding: 20,
+    borderRadius: 12,
+    elevation: 5,
   },
   input: {
-    borderColor: '#999',
+    borderColor: '#ccc',
     borderWidth: 1,
     borderRadius: 6,
     paddingHorizontal: 12,
