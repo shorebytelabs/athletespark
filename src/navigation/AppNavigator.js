@@ -8,6 +8,7 @@ import SettingsScreen from '../screens/Settings/SettingsScreen';
 import HomeScreen from '../screens/Home/HomeScreen';
 import { NavigationContainer } from '@react-navigation/native';
 import CreateProjectScreen from '../screens/CreateProject/CreateProjectScreen';
+import VideoEditorScreen from '../screens/VideoEditor/VideoEditorScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -61,6 +62,7 @@ export default function AppNavigator() {
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="CreateProject" component={CreateProjectScreen} />
         <Stack.Screen name="MyProjects" component={MyProjectsScreen} />
+        <Stack.Screen name="VideoEditor" component={VideoEditorScreen} options={{ title: 'Edit Project' }}/>
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -71,26 +71,28 @@ export default function MyProjectsScreen({ navigation }) {
   }, [navigation]);
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>My Projects</Text>
-      {projects.length === 0 ? (
-        <Text>No projects yet.</Text>
-      ) : (
-        <FlatList
-          data={projects}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
-            <SafeAreaView style={styles.projectItem}>
+  <SafeAreaView style={styles.container}>
+    <Text style={styles.title}>My Projects</Text>
+    {projects.length === 0 ? (
+      <Text>No projects yet.</Text>
+    ) : (
+      <FlatList
+        data={projects}
+        keyExtractor={(item) => item.id}
+        renderItem={({ item }) => (
+          <SafeAreaView style={styles.projectItem}>
+            <TouchableOpacity onPress={() => navigation.navigate('VideoEditor', { project: item })}>
               <Text style={styles.projectName}>{item.name}</Text>
-              <TouchableOpacity onPress={() => handleProjectOptions(item)}>
-                <Text style={[styles.menuDots, { transform: [{ rotate: '90deg' }] }]}>⋮</Text>
-              </TouchableOpacity>
-            </SafeAreaView>
-          )}
-        />
-      )}
-    </SafeAreaView>
-  );
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => handleProjectOptions(item)}>
+              <Text style={[styles.menuDots, { transform: [{ rotate: '90deg' }] }]}>⋮</Text>
+            </TouchableOpacity>
+          </SafeAreaView>
+        )}
+      />
+    )}
+  </SafeAreaView>
+);
 }
 
 const styles = StyleSheet.create({
