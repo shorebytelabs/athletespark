@@ -23,7 +23,7 @@ function CustomTabBarButton({ onPress }) {
         width: 45,
         height: 45,
         marginBottom: 40,
-        borderWidth: 6,
+        borderWidth: 4,
         borderColor: '#ccc',
         alignItems: 'center',
         justifyContent: 'center',
@@ -60,6 +60,7 @@ export default function AppNavigator() {
         <Stack.Screen name="Main" component={Tabs} options={{ headerShown: false }} />
         <Stack.Screen name="Settings" component={SettingsScreen} />
         <Stack.Screen name="CreateProject" component={CreateProjectScreen} />
+        <Stack.Screen name="MyProjects" component={MyProjectsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

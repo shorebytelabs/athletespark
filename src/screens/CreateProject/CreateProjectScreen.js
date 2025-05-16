@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, Button, FlatList, Image, Alert, StyleSheet } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
+import { saveProject } from '../../utils/storage';
 
 const MAX_CLIPS = 5;
 const MAX_DURATION = 20; // seconds
@@ -35,25 +36,29 @@ export default function CreateProjectScreen({ navigation }) {
     );
   };
 
-  const handleCreateProject = () => {
-    if (clips.length === 0) {
-      Alert.alert('Please select at least 1 video clip.');
-      return;
-    }
+  const handleCreateProject = async () => {
+  if (clips.length === 0) {
+    Alert.alert('Please select at least 1 video clip.');
+    return;
+  }
 
-    const projectName = `Project_${new Date().toISOString()}`;
-    const newProject = {
-      id: Date.now().toString(),
-      name: projectName,
-      clips: clips,
-      createdAt: new Date(),
-    };
-
-    // In future: Save to local storage
-    console.log('Creating project:', newProject);
-    Alert.alert('Project Created!', `Name: ${projectName}`);
-    // Optionally navigate to editor
+  const projectName = `Project_${new Date().toISOString()}`;
+  const newProject = {
+    id: Date.now().toString(),
+    name: projectName,
+    clips: clips,
+    createdAt: new Date().toISOString(),
   };
+
+  try {
+    await saveProject(newProject);
+    Alert.alert('Project Created!', `Name: ${projectName}`);
+    navigation.navigate('MyProjects');
+  } catch (err) {
+    Alert.alert('Error', 'Failed to save project.');
+    console.error(err);
+  }
+};
 
   return (
     <View style={styles.container}>
