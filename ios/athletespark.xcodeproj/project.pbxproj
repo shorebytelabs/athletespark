@@ -7,11 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		09B54E84C6698180D205E492 /* libPods-athletespark.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 42E17CCAC2469800B90F3EE0 /* libPods-athletespark.a */; };
 		13B07FBF1A68108700A75B9A /* Images.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB51A68108700A75B9A /* Images.xcassets */; };
 		761780ED2CA45674006654EE /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 761780EC2CA45674006654EE /* AppDelegate.swift */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
 		ABD5A97E16863FEEDE51159C /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */; };
-		AFFF4B08E2575990D61DD48B /* libPods-athletespark.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 6544C84FAE4C60C95B6DD105 /* libPods-athletespark.a */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,11 +19,11 @@
 		13B07FB51A68108700A75B9A /* Images.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Images.xcassets; path = athletespark/Images.xcassets; sourceTree = "<group>"; };
 		13B07FB61A68108700A75B9A /* Info.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = Info.plist; path = athletespark/Info.plist; sourceTree = "<group>"; };
 		13B07FB81A68108700A75B9A /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; name = PrivacyInfo.xcprivacy; path = athletespark/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
-		46BAAA88BF96BA4899F786FE /* Pods-athletespark.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-athletespark.release.xcconfig"; path = "Target Support Files/Pods-athletespark/Pods-athletespark.release.xcconfig"; sourceTree = "<group>"; };
-		58613EA7B26318113B5FD164 /* Pods-athletespark.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-athletespark.debug.xcconfig"; path = "Target Support Files/Pods-athletespark/Pods-athletespark.debug.xcconfig"; sourceTree = "<group>"; };
-		6544C84FAE4C60C95B6DD105 /* libPods-athletespark.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-athletespark.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		42E17CCAC2469800B90F3EE0 /* libPods-athletespark.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-athletespark.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		6996B65590E208F7C381531E /* Pods-athletespark.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-athletespark.release.xcconfig"; path = "Target Support Files/Pods-athletespark/Pods-athletespark.release.xcconfig"; sourceTree = "<group>"; };
 		761780EC2CA45674006654EE /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = athletespark/AppDelegate.swift; sourceTree = "<group>"; };
 		81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = LaunchScreen.storyboard; path = athletespark/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		BFAA9887E4FFD5FD10F4E7EF /* Pods-athletespark.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-athletespark.debug.xcconfig"; path = "Target Support Files/Pods-athletespark/Pods-athletespark.debug.xcconfig"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -32,7 +32,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AFFF4B08E2575990D61DD48B /* libPods-athletespark.a in Frameworks */,
+				09B54E84C6698180D205E492 /* libPods-athletespark.a in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -55,7 +55,7 @@
 			isa = PBXGroup;
 			children = (
 				ED297162215061F000B7C4FE /* JavaScriptCore.framework */,
-				6544C84FAE4C60C95B6DD105 /* libPods-athletespark.a */,
+				42E17CCAC2469800B90F3EE0 /* libPods-athletespark.a */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -92,8 +92,8 @@
 		BBD78D7AC51CEA395F1C20DB /* Pods */ = {
 			isa = PBXGroup;
 			children = (
-				58613EA7B26318113B5FD164 /* Pods-athletespark.debug.xcconfig */,
-				46BAAA88BF96BA4899F786FE /* Pods-athletespark.release.xcconfig */,
+				BFAA9887E4FFD5FD10F4E7EF /* Pods-athletespark.debug.xcconfig */,
+				6996B65590E208F7C381531E /* Pods-athletespark.release.xcconfig */,
 			);
 			path = Pods;
 			sourceTree = "<group>";
@@ -105,12 +105,12 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 13B07F931A680F5B00A75B9A /* Build configuration list for PBXNativeTarget "athletespark" */;
 			buildPhases = (
-				6DC5E7ABAE6A803C79E37772 /* [CP] Check Pods Manifest.lock */,
+				D2344B44043946882E6D91B7 /* [CP] Check Pods Manifest.lock */,
 				13B07F871A680F5B00A75B9A /* Sources */,
 				13B07F8C1A680F5B00A75B9A /* Frameworks */,
 				13B07F8E1A680F5B00A75B9A /* Resources */,
 				00DD1BFF1BD5951E006B06BC /* Bundle React Native code and images */,
-				0D87AA0649B9601211F48DD7 /* [CP] Copy Pods Resources */,
+				8A33E4E209594F8F0CB2B149 /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
@@ -182,7 +182,7 @@
 			shellPath = /bin/sh;
 			shellScript = "set -e\n\nWITH_ENVIRONMENT=\"$REACT_NATIVE_PATH/scripts/xcode/with-environment.sh\"\nREACT_NATIVE_XCODE=\"$REACT_NATIVE_PATH/scripts/react-native-xcode.sh\"\n\n/bin/sh -c \"$WITH_ENVIRONMENT $REACT_NATIVE_XCODE\"\n";
 		};
-		0D87AA0649B9601211F48DD7 /* [CP] Copy Pods Resources */ = {
+		8A33E4E209594F8F0CB2B149 /* [CP] Copy Pods Resources */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -199,7 +199,7 @@
 			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-athletespark/Pods-athletespark-resources.sh\"\n";
 			showEnvVarsInLog = 0;
 		};
-		6DC5E7ABAE6A803C79E37772 /* [CP] Check Pods Manifest.lock */ = {
+		D2344B44043946882E6D91B7 /* [CP] Check Pods Manifest.lock */ = {
 			isa = PBXShellScriptBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -237,7 +237,7 @@
 /* Begin XCBuildConfiguration section */
 		13B07F941A680F5B00A75B9A /* Debug */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 58613EA7B26318113B5FD164 /* Pods-athletespark.debug.xcconfig */;
+			baseConfigurationReference = BFAA9887E4FFD5FD10F4E7EF /* Pods-athletespark.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;
@@ -265,7 +265,7 @@
 		};
 		13B07F951A680F5B00A75B9A /* Release */ = {
 			isa = XCBuildConfiguration;
-			baseConfigurationReference = 46BAAA88BF96BA4899F786FE /* Pods-athletespark.release.xcconfig */;
+			baseConfigurationReference = 6996B65590E208F7C381531E /* Pods-athletespark.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CLANG_ENABLE_MODULES = YES;

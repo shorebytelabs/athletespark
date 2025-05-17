@@ -12,6 +12,7 @@ import {
   SafeAreaView,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { updateProject } from '../../utils/storage'; 
 
 const defaultCategories = [
   'Goal',
@@ -27,9 +28,8 @@ const CUSTOM_CATEGORIES_KEY = 'CUSTOM_CATEGORIES';
 
 export default function VideoEditorScreen({ route, navigation }) {
   const { project } = route.params;
-  const [clips, setClips] = useState(
-    project.clips.map((clip) => ({ ...clip, category: null }))
-  );
+
+  const [clips, setClips] = useState(project.clips); // Use project clips directly
   const [currentIndex, setCurrentIndex] = useState(0);
   const [trackingEnabled, setTrackingEnabled] = useState(false);
 
@@ -37,9 +37,24 @@ export default function VideoEditorScreen({ route, navigation }) {
   const [modalVisible, setModalVisible] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
 
+  // Load saved custom categories
   useEffect(() => {
     loadCustomCategories();
   }, []);
+
+  // Save edited clips back to the project when the user leaves the screen
+  useEffect(() => {
+    return () => {
+      saveEditedClipsToProject();
+    };
+  }, [clips]);
+
+  const saveEditedClipsToProject = async () => {
+  
+      const updatedProject = { ...project, clips };
+      await updateProject(updatedProject);
+      console.log('Project clips saved');
+  };
 
   const loadCustomCategories = async () => {
     try {
@@ -71,12 +86,17 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const assignCategory = (category) => {
     if (category === 'Other / Create New') {
-      setNewCategoryName('');
-      setModalVisible(true);
-      return;
+        setNewCategoryName('');
+        setModalVisible(true);
+        return;
     }
     const updatedClips = [...clips];
-    updatedClips[currentIndex].category = category;
+    // Deselect if user taps the already selected category
+    if (updatedClips[currentIndex].category === category) {
+        updatedClips[currentIndex].category = null;
+    } else {
+        updatedClips[currentIndex].category = category;
+    }
     setClips(updatedClips);
   };
 
@@ -187,7 +207,6 @@ export default function VideoEditorScreen({ route, navigation }) {
             />
           </View>
 
-          {/* Add padding so last content is visible above floating buttons */}
           <View style={{ height: 80 }} />
         </ScrollView>
 
@@ -236,7 +255,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
-    paddingBottom: 80, // space for fixed footer buttons
+    paddingBottom: 80,
   },
   title: { fontSize: 20, fontWeight: 'bold', marginBottom: 12 },
   videoContainer: {
@@ -280,18 +299,18 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: -8,
     right: -8,
-    backgroundColor: '#eee', // light gray background
+    backgroundColor: '#eee',
     borderRadius: 10,
     width: 20,
     height: 20,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#999', // gray border to match category outline
+    borderColor: '#999',
     zIndex: 1,
   },
   deleteIcon: {
-    color: '#666', // gray color for the "×"
+    color: '#666',
     fontWeight: 'bold',
     fontSize: 14,
     lineHeight: 14,
