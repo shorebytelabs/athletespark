@@ -13,6 +13,8 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject } from '../../utils/storage'; 
+import Video from 'react-native-video';
+
 
 const defaultCategories = [
   'Goal',
@@ -157,8 +159,18 @@ export default function VideoEditorScreen({ route, navigation }) {
           </Text>
 
           {/* Video Player Placeholder */}
-          <View style={styles.videoContainer}>
+          {/* <View style={styles.videoContainer}>
             <Text>(Video playback would be here for URI: {currentClip.uri})</Text>
+          </View> */}
+
+          <View style={styles.videoContainer}>
+            <Video
+              source={{ uri: currentClip.uri }}
+              style={styles.video}
+              controls
+              resizeMode="contain"
+              paused={false} // Change to true if you want to start paused
+            />
           </View>
 
           {/* Categories */}
@@ -356,5 +368,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     fontSize: 16,
+  },
+  video: {
+  width: '100%',
+  height: '100%',
   },
 });
