@@ -14,6 +14,8 @@
 		6132EF182BDFF13200BBE14D /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = 6132EF172BDFF13200BBE14D /* PrivacyInfo.xcprivacy */; };
 		689C52F23B5B6B705671F52E /* libPods-athletespark.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 037C149E21BB7D00FA378F02 /* libPods-athletespark.a */; };
 		81AB9BB82411601600AC10FF /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 81AB9BB72411601600AC10FF /* LaunchScreen.storyboard */; };
+		DC6AD25E2DDFEE6D0096D3C1 /* VideoEditorModule.mm in Sources */ = {isa = PBXBuildFile; fileRef = DC6AD25D2DDFEE6D0096D3C1 /* VideoEditorModule.mm */; };
+		DC6AD25F2DDFEE6D0096D3C1 /* VideoEditorModule.mm in Sources */ = {isa = PBXBuildFile; fileRef = DC6AD25D2DDFEE6D0096D3C1 /* VideoEditorModule.mm */; };
 		F2168384BA3840EDE5A13B40 /* libPods-athletespark-athletesparkTests.a in Frameworks */ = {isa = PBXBuildFile; fileRef = CB0B9BBEE5C7AB60128A0401 /* libPods-athletespark-athletesparkTests.a */; };
 /* End PBXBuildFile section */
 
@@ -45,6 +47,8 @@
 		A37595ECCBA6C66D9C3A1519 /* Pods-athletespark.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-athletespark.release.xcconfig"; path = "Target Support Files/Pods-athletespark/Pods-athletespark.release.xcconfig"; sourceTree = "<group>"; };
 		BAFEF575500ACEFFFE2325E3 /* Pods-athletespark.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-athletespark.debug.xcconfig"; path = "Target Support Files/Pods-athletespark/Pods-athletespark.debug.xcconfig"; sourceTree = "<group>"; };
 		CB0B9BBEE5C7AB60128A0401 /* libPods-athletespark-athletesparkTests.a */ = {isa = PBXFileReference; explicitFileType = archive.ar; includeInIndex = 0; path = "libPods-athletespark-athletesparkTests.a"; sourceTree = BUILT_PRODUCTS_DIR; };
+		DC6AD25D2DDFEE6D0096D3C1 /* VideoEditorModule.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = VideoEditorModule.mm; sourceTree = "<group>"; };
+		DC6AD2602DDFEEBB0096D3C1 /* athletespark-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "athletespark-Bridging-Header.h"; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
@@ -88,6 +92,8 @@
 		13B07FAE1A68108700A75B9A /* athletespark */ = {
 			isa = PBXGroup;
 			children = (
+				DC6AD2602DDFEEBB0096D3C1 /* athletespark-Bridging-Header.h */,
+				DC6AD25D2DDFEE6D0096D3C1 /* VideoEditorModule.mm */,
 				13B07FAF1A68108700A75B9A /* AppDelegate.h */,
 				13B07FB01A68108700A75B9A /* AppDelegate.mm */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
@@ -388,6 +394,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				DC6AD25E2DDFEE6D0096D3C1 /* VideoEditorModule.mm in Sources */,
 				00E356F31AD99517003FC87E /* athletesparkTests.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -397,6 +404,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				13B07FBC1A68108700A75B9A /* AppDelegate.mm in Sources */,
+				DC6AD25F2DDFEE6D0096D3C1 /* VideoEditorModule.mm in Sources */,
 				13B07FC11A68108700A75B9A /* main.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

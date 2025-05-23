@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,11 +10,14 @@ import {
   Modal,
   ScrollView,
   SafeAreaView,
+  NativeModules,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject } from '../../utils/storage'; 
 import Video from 'react-native-video';
+import MultiSlider from '@ptomasroos/react-native-multi-slider';
 
+const { VideoEditorModule } = NativeModules;
 
 const defaultCategories = [
   'Goal',
@@ -29,7 +32,8 @@ const defaultCategories = [
 const CUSTOM_CATEGORIES_KEY = 'CUSTOM_CATEGORIES';
 
 export default function VideoEditorScreen({ route, navigation }) {
-  const { project } = route.params;
+  const { project, onClipUpdate, currentClip: routeCurrentClip} = route.params;
+  const videoRef = useRef(null);
 
   const [clips, setClips] = useState(project.clips); // Use project clips directly
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -141,6 +145,122 @@ export default function VideoEditorScreen({ route, navigation }) {
     );
   };
 
+    const [isTrimming, setIsTrimming] = useState(false);
+    const [trimStart, setTrimStart] = useState(0);
+    const [trimEnd, setTrimEnd] = useState(0);
+    const [duration, setDuration] = useState(0);
+    const [currentTime, setCurrentTime] = useState(0);
+    const [paused, setPaused] = useState(false);
+    const [loopTrimPreview, setLoopTrimPreview] = useState(true);
+
+    // Seek to trimStart when it changes
+    useEffect(() => {
+      if (videoRef.current && trimStart < trimEnd) {
+        videoRef.current.seek(trimStart);
+      }
+    }, [trimStart]);
+
+    useEffect(() => {
+      setTrimStart(trimStart);
+      setTrimEnd(trimEnd);
+    }, [trimStart, trimEnd]);
+
+    useEffect(() => {
+    if (currentClip?.startTime != null && currentClip?.endTime != null) {
+      setTrimStart(currentClip.startTime);
+      setTimeEnd(currentClip.endTime);
+    } else {
+      setTrimStart(0);
+      setTrimEnd(currentClip?.duration || 5); // fallback to 5s if unknown
+    }
+  }, [currentIndex]);
+
+  useEffect(() => {
+  if (currentClip) {
+    const start = currentClip.startTime ?? 0;
+    const end = currentClip.endTime ?? currentClip.duration ?? 5;
+    setTrimStart(start);
+    setTrimEnd(end);
+  }
+  }, [currentClip]);
+
+  const handleTrimAndExport = async () => {
+    try {
+      setIsTrimming(true);
+
+      const inputPath = currentClip.uri.replace('file://', '');
+      const basePath = inputPath.replace(/\.\w+$/, '');
+      const timestamp = Date.now();
+      const outputPath = `${basePath}_trimmed_${timestamp}.mov`;
+
+      const result = await VideoEditorModule.trimVideo(
+        inputPath,
+        trimStart,
+        trimEnd,
+        outputPath
+      );
+
+      const newUri = 'file://' + result;
+      const updatedClip = {
+        ...currentClip,
+        uri: newUri,
+        trimStart,
+        trimEnd,
+      };
+
+      const updatedClips = [...clips];
+      updatedClips[currentIndex] = updatedClip;
+      setClips(updatedClips);
+
+      if (onClipUpdate) onClipUpdate(updatedClip);
+
+      Alert.alert('Success', `Trimmed video saved:\n${newUri}`);
+    } catch (e) {
+      console.error('Video trimming failed', e);
+      Alert.alert('Error', 'Failed to trim the video.');
+    } finally {
+      setIsTrimming(false);
+    }
+  };
+
+  const onLoad = (data) => {
+    setDuration(data.duration);
+    setTrimEnd(Math.min(data.duration, trimEnd || data.duration));
+    videoRef.current?.seek(trimStart);
+  };
+
+  const onError = (error) => {
+    console.log('Video playback error:', error);
+  };
+
+  const onProgress = (data) => {
+    const current = data.currentTime;
+
+    // Loop or pause once we hit the end of trimmed range
+    if (current >= trimEnd) {
+      if (loopTrimPreview) {
+        videoRef.current?.seek(trimStart);
+      } else {
+        setPaused(true);
+      }
+    }
+
+    // Optionally pause if accidentally outside trim bounds
+    if (current < trimStart) {
+      videoRef.current?.seek(trimStart);
+    }
+
+    setCurrentTime(current);
+  };
+
+  // When trimStart changes, seek to that time, but only if duration is valid
+  useEffect(() => {
+    if (videoRef.current && trimStart < trimEnd && duration > 0) {
+      videoRef.current.seek(trimStart);
+      setPaused(false); // ensure video plays after seek
+    }
+  }, [trimStart, trimEnd, duration]);
+
   const goNext = () => {
     if (currentIndex < clips.length - 1) setCurrentIndex(currentIndex + 1);
     else Alert.alert('End of clips', 'You have reviewed all clips.');
@@ -159,19 +279,47 @@ export default function VideoEditorScreen({ route, navigation }) {
           </Text>
 
           {/* Video Player Placeholder */}
-          {/* <View style={styles.videoContainer}>
-            <Text>(Video playback would be here for URI: {currentClip.uri})</Text>
-          </View> */}
-
-          <View style={styles.videoContainer}>
+           <View style={styles.videoContainer}>
             <Video
+              ref={videoRef}
               source={{ uri: currentClip.uri }}
+              onLoad={onLoad}
+              onError={onError}
+              onProgress={onProgress}
               style={styles.video}
-              controls
               resizeMode="contain"
-              paused={false} // Change to true if you want to start paused
+              controls
+              paused={paused}
             />
-          </View>
+          </View> 
+
+          {/* Trimming Controls */}
+          <Text style={styles.subtitle}>Trim:</Text>
+          <Text style={{ fontSize: 12, marginTop: 4 }}>
+            Trimmed: Start {trimStart.toFixed(1)}s – End {trimEnd.toFixed(1)}s
+          </Text>
+
+          <Text style={{ fontSize: 12, marginTop: 4 }}>
+            Showing { (trimEnd - trimStart).toFixed(1) }s of { duration.toFixed(1) }s
+          </Text>
+
+          {duration > 0 && (
+            <MultiSlider
+              values={[trimStart, trimEnd]}
+              sliderLength={300}
+              onValuesChange={(values) => {
+                const [start, end] = values;
+                setTrimStart(start);
+                setTrimEnd(end);
+              }}
+              min={0}
+              max={duration}
+              step={0.1}
+              selectedStyle={{ backgroundColor: '#00f' }}
+              unselectedStyle={{ backgroundColor: '#888' }}
+              markerStyle={{ backgroundColor: '#fff' }}
+            />
+          )}
 
           {/* Categories */}
           <Text style={styles.subtitle}>Select Category:</Text>
@@ -212,7 +360,7 @@ export default function VideoEditorScreen({ route, navigation }) {
 
           {/* Tracking toggle */}
           <View style={styles.trackingContainer}>
-            <Text>Athlete Tracking:</Text>
+            <Text style={styles.subtitle}>Athlete Tracking:</Text>
             <Button
               title={trackingEnabled ? 'Disable' : 'Enable'}
               onPress={() => setTrackingEnabled(!trackingEnabled)}
@@ -263,7 +411,9 @@ export default function VideoEditorScreen({ route, navigation }) {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#fff' },
-  container: { flex: 1, position: 'relative' },
+  container: { flex: 1, backgroundColor: '#fff' },
+  inner: { padding: 16 },
+  label: { fontSize: 16, marginBottom: 8 },
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
@@ -277,7 +427,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  subtitle: { fontSize: 14, marginBottom: 4 },
+  subtitle: { fontSize: 14, marginBottom: 4, fontWeight: 'bold' },
   categoryList: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -370,7 +520,36 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   video: {
-  width: '100%',
-  height: '100%',
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#000',
+  },
+  inputRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginVertical: 16,
+  },
+  inputGroup: { flex: 1, marginRight: 8 },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    marginTop: 4,
+  },
+  heading: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    marginBottom: 12,
+  },
+  trimControls: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginVertical: 16,
+  },
+  trimInput: {
+    flex: 1,
+    marginHorizontal: 8,
   },
 });
