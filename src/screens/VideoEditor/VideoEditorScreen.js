@@ -236,7 +236,7 @@ export default function VideoEditorScreen({ route, navigation }) {
   const onProgress = (data) => {
     const current = data.currentTime;
 
-    // Loop or pause once we hit the end of trimmed range
+    // Clamp playback to trimmed end
     if (current >= trimEnd) {
       if (loopTrimPreview) {
         videoRef.current?.seek(trimStart);
@@ -245,7 +245,7 @@ export default function VideoEditorScreen({ route, navigation }) {
       }
     }
 
-    // Optionally pause if accidentally outside trim bounds
+    // Clamp if it somehow goes before the trimmed start
     if (current < trimStart) {
       videoRef.current?.seek(trimStart);
     }
@@ -260,6 +260,16 @@ export default function VideoEditorScreen({ route, navigation }) {
       setPaused(false); // ensure video plays after seek
     }
   }, [trimStart, trimEnd, duration]);
+
+  const togglePlayPause = () => {
+    setPaused(prev => !prev);
+  };
+
+  const formatTime = (seconds) => {
+    const minutes = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${minutes}:${secs.toString().padStart(2, '0')}`;
+  }; 
 
   const goNext = () => {
     if (currentIndex < clips.length - 1) setCurrentIndex(currentIndex + 1);
@@ -288,10 +298,36 @@ export default function VideoEditorScreen({ route, navigation }) {
               onProgress={onProgress}
               style={styles.video}
               resizeMode="contain"
-              controls
+              controls={true}
               paused={paused}
             />
           </View> 
+
+          <View style={styles.videoWrapper}>
+            <Video
+              ref={videoRef}
+              source={{ uri: currentClip.uri }}
+              onLoad={onLoad}
+              onError={onError}
+              onProgress={onProgress}
+              style={styles.video}
+              resizeMode="contain"
+              controls={false}
+              paused={paused}
+            />
+            
+            <View style={styles.playbackControls}>
+              <TouchableOpacity onPress={togglePlayPause} style={styles.playPauseButton}>
+                <Text style={styles.playPauseText}>
+                  {paused ? '▶' : '⏸︎'}
+                </Text>
+              </TouchableOpacity>
+
+              <Text style={styles.playbackTime}>
+                {formatTime(currentTime)} / {formatTime(trimEnd)}
+              </Text>
+            </View>
+          </View>
 
           {/* Trimming Controls */}
           <Text style={styles.subtitle}>Trim:</Text>
@@ -311,6 +347,12 @@ export default function VideoEditorScreen({ route, navigation }) {
                 const [start, end] = values;
                 setTrimStart(start);
                 setTrimEnd(end);
+
+                // Force pause and seek immediately
+                if (videoRef.current) {
+                  videoRef.current.seek(start);
+                }
+                setPaused(true);
               }}
               min={0}
               max={duration}
@@ -551,5 +593,53 @@ const styles = StyleSheet.create({
   trimInput: {
     flex: 1,
     marginHorizontal: 8,
+  },
+  videoWrapper: {
+    position: 'relative',
+    width: '100%',
+    aspectRatio: 16 / 9, // or adjust based on your video
+    backgroundColor: '#000', // fallback background behind video
+  },
+  playbackControls: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingVertical: 2,    // reduced from 8 to 4
+    paddingHorizontal: 12,
+    borderBottomLeftRadius: 12,
+    borderBottomRightRadius: 12,
+  },
+  playPauseButton: {
+    backgroundColor: '#ffffff20',
+    paddingVertical: 2,    // reduced from 6 to 4
+    paddingHorizontal: 10, // reduced slightly from 14 to 12
+    borderRadius: 8,
+  },
+  playPauseText: {
+    color: '#fff',
+    fontSize: 12,          // reduced from 16 to 14
+    fontWeight: '600',
+  },
+  playbackTime: {
+    color: '#fff',
+    fontSize: 10,          // reduced from 14 to 12
+    fontVariant: ['tabular-nums'],
+  },
+  iconButton: {
+    borderRadius: 30,    // Circular touch area
+    overflow: 'hidden',
+  },
+  iconBackground: {
+    backgroundColor: 'black',
+    borderRadius: 20,    // Circle background for icon
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
