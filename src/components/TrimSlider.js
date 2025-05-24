@@ -38,7 +38,9 @@ const TrimSlider = ({ duration, trimStart, trimEnd, onTrimChange, setPaused }) =
               borderRadius: 4,
               marginBottom: 4,
             }}>
-              <Text style={{ color: '#fff', fontSize: 10 }}>{currentValue.toFixed(1)}s</Text>
+              <Text style={{ color: '#fff', fontSize: 10 }}>
+                {(typeof currentValue === 'number' && !isNaN(currentValue) ? currentValue : 0).toFixed(1)}s
+              </Text>
             </View>
             <View style={{
               width: 20,

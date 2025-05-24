@@ -15,8 +15,8 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject, getAllProjects } from '../../utils/storage'; 
 import Video from 'react-native-video';
-import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import TrimSlider from '../../components/TrimSlider'; 
+import { saveTrimInfo, loadTrimInfo, removeTrimInfo } from '../../utils/trimStorage';
 
 const { VideoEditorModule } = NativeModules;
 
@@ -37,7 +37,7 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const videoRef = useRef(null);
 
-  const [clips, setClips] = useState(project?.clips ?? []);//useState(project.clips); // Use project clips directly
+  const [clips, setClips] = useState(project?.clips ?? []);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [trackingEnabled, setTrackingEnabled] = useState(false);
 
@@ -55,6 +55,37 @@ export default function VideoEditorScreen({ route, navigation }) {
   const trimKey = currentClip
     ? `trim-${currentClip.id || currentClip.uri}`
     : 'trim-unknown';
+
+  const [isTrimming, setIsTrimming] = useState(false);
+
+  const projectId = project?.id;
+  const clipId = currentClip?.id || currentClip?.uri;
+
+  // Helper function to generate a unique storage key per project+clip
+  const getTrimStorageKey = (projectId, clipId) => `trim_${projectId}_${clipId}`;
+
+  function onTrimChange(trimStart, trimEnd) {
+      setTrimStart(trimStart);
+      setTrimEnd(trimEnd);
+      saveTrimInfo(projectId, clipId, { startTime: trimStart, endTime: newEnd });
+    }
+
+    // Load trim info when project or clip changes
+    useEffect(() => {
+      async function fetchTrim() {
+        if (projectId && clipId) {
+          const savedTrim = await loadTrimInfo(projectId, clipId);
+          if (savedTrim) {
+            setTrimStart(savedTrim.startTime ?? 0);
+            setTrimEnd(savedTrim.endTime ?? duration); // fallback to duration
+          } else {
+            setTrimStart(0);
+            setTrimEnd(duration);
+          }
+        }
+      }
+      fetchTrim();
+    }, [projectId, clipId, duration]);
 
   // Load saved custom categories
   useEffect(() => {
@@ -76,14 +107,11 @@ export default function VideoEditorScreen({ route, navigation }) {
   }, [trimStart]);
 
   useEffect(() => {
-  if (currentClip?.startTime != null && currentClip?.endTime != null) {
-    setTrimStart(currentClip.startTime);
-    setTrimEnd(currentClip.endTime);
-  } else {
-    setTrimStart(0);
-    setTrimEnd(currentClip?.duration || 5); // fallback to 5s if unknown
+  if (currentClip) {
+    setTrimStart(currentClip.startTime ?? 0);
+    setTrimEnd(currentClip.endTime ?? currentClip.duration ?? 5);
   }
-  }, [currentIndex]);
+}, [currentClip]);
 
   useEffect(() => {
     const start = currentClip?.startTime ?? 0;
@@ -100,34 +128,19 @@ export default function VideoEditorScreen({ route, navigation }) {
     }
   }, [trimStart, trimEnd, duration]);
 
-  // Load persisted trim values
-  useEffect(() => {
-    const loadTrim = async () => {
-      try {
-        const saved = await AsyncStorage.getItem(trimKey);
-        if (saved) {
-          const { start, end } = JSON.parse(saved);
-          setTrimStart(start);
-          setTrimEnd(end);
-        }
-      } catch (e) {
-        console.error('Failed to load trim:', e);
-      }
-    };
-    loadTrim();
-  }, [currentClip]);
-
-  // Save trim values persistently
+  // Save trim info whenever trim changes
   const handleTrimChange = async (start, end) => {
     setTrimStart(start);
     setTrimEnd(end);
     setPaused(true);
     if (videoRef.current) videoRef.current.seek(start);
 
-    try {
-      await AsyncStorage.setItem(trimKey, JSON.stringify({ start, end }));
-    } catch (e) {
-      console.error('Failed to save trim:', e);
+    if (projectId && clipId) {
+      try {
+        await saveTrimInfo(projectId, clipId, { startTime: start, endTime: end });
+      } catch (e) {
+        console.error('Failed to save trim info:', e);
+      }
     }
   };
 
