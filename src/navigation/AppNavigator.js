@@ -6,12 +6,28 @@ import { View, TouchableOpacity, Text } from 'react-native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import SettingsScreen from '../screens/Settings/SettingsScreen';
 import HomeScreen from '../screens/Home/HomeScreen';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, useNavigation } from '@react-navigation/native';
 import CreateProjectScreen from '../screens/CreateProject/CreateProjectScreen';
 import VideoEditorScreen from '../screens/VideoEditor/VideoEditorScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
+
+function PlaceholderScreen() {
+  return <View style={{ flex: 1, backgroundColor: '#fff' }} />;
+}
+
+function CreateTabButton(props) {
+  const navigation = useNavigation();
+  return (
+    <CustomTabBarButton
+      {...props}
+      onPress={() => {
+        navigation.navigate('CreateProject', { skipIntro: true });
+      }}
+    />
+  );
+}
 
 function CustomTabBarButton({ onPress }) {
   return (
@@ -54,9 +70,9 @@ function Tabs() {
       <Tab.Screen name="MyProjects" component={MyProjectsScreen} />
       <Tab.Screen
         name="Create"
-        component={HomeScreen}
+        component={PlaceholderScreen}
         options={{
-          tabBarButton: (props) => <CustomTabBarButton {...props} />
+          tabBarButton: (props) => <CreateTabButton {...props} />,
         }}
       />
       <Tab.Screen name="AthleteProfiles" component={AthleteProfilesScreen} />

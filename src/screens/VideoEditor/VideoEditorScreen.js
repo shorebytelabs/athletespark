@@ -13,7 +13,7 @@ import {
   NativeModules,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { updateProject } from '../../utils/storage'; 
+import { updateProject, getAllProjects } from '../../utils/storage'; 
 import Video from 'react-native-video';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 import TrimSlider from '../../components/TrimSlider'; 
@@ -33,17 +33,18 @@ const defaultCategories = [
 const CUSTOM_CATEGORIES_KEY = 'CUSTOM_CATEGORIES';
 
 export default function VideoEditorScreen({ route, navigation }) {
-  const { project, onClipUpdate, currentClip: routeCurrentClip} = route.params;
+  const { project, onClipUpdate, currentClip: routeCurrentClip} = route.params ?? {};
+
   const videoRef = useRef(null);
 
-  const [clips, setClips] = useState(project.clips); // Use project clips directly
+  const [clips, setClips] = useState(project?.clips ?? []);//useState(project.clips); // Use project clips directly
   const [currentIndex, setCurrentIndex] = useState(0);
   const [trackingEnabled, setTrackingEnabled] = useState(false);
 
   const [customCategories, setCustomCategories] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
-  const currentClip = clips[currentIndex];
+  const currentClip = clips[currentIndex] ?? null;
   
   const [trimStart, setTrimStart] = useState(0);
   const [trimEnd, setTrimEnd] = useState(0);
@@ -51,7 +52,9 @@ export default function VideoEditorScreen({ route, navigation }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [paused, setPaused] = useState(false);
   const [loopTrimPreview, setLoopTrimPreview] = useState(true);
-  const trimKey = `trim-${currentClip.id || currentClip.uri}`;
+  const trimKey = currentClip
+    ? `trim-${currentClip.id || currentClip.uri}`
+    : 'trim-unknown';
 
   // Load saved custom categories
   useEffect(() => {
@@ -73,14 +76,9 @@ export default function VideoEditorScreen({ route, navigation }) {
   }, [trimStart]);
 
   useEffect(() => {
-    setTrimStart(trimStart);
-    setTrimEnd(trimEnd);
-  }, [trimStart, trimEnd]);
-
-  useEffect(() => {
   if (currentClip?.startTime != null && currentClip?.endTime != null) {
     setTrimStart(currentClip.startTime);
-    setTimeEnd(currentClip.endTime);
+    setTrimEnd(currentClip.endTime);
   } else {
     setTrimStart(0);
     setTrimEnd(currentClip?.duration || 5); // fallback to 5s if unknown
@@ -88,12 +86,10 @@ export default function VideoEditorScreen({ route, navigation }) {
   }, [currentIndex]);
 
   useEffect(() => {
-  if (currentClip) {
-    const start = currentClip.startTime ?? 0;
-    const end = currentClip.endTime ?? currentClip.duration ?? 5;
+    const start = currentClip?.startTime ?? 0;
+    const end = currentClip?.endTime ?? currentClip?.duration ?? 5;
     setTrimStart(start);
     setTrimEnd(end);
-  }
   }, [currentClip]);
 
   // When trimStart changes, seek to that time, but only if duration is valid
@@ -268,14 +264,6 @@ export default function VideoEditorScreen({ route, navigation }) {
     videoRef.current?.seek(trimStart);
   };
 
-  // const onLoad = (data) => {
-  //   const dur = data.duration;
-  //   setDuration(dur);
-  //   if (trimEnd === 0) {
-  //     setTrimEnd(dur); // default to full length if not set
-  //   }
-  // };
-
   const onError = (error) => {
     console.log('Video playback error:', error);
   };
@@ -283,8 +271,9 @@ export default function VideoEditorScreen({ route, navigation }) {
   const onProgress = (data) => {
     const current = data.currentTime;
 
-    // Clamp playback to trimmed end
-    if (current >= trimEnd) {
+    if (current < trimStart) {
+      videoRef.current?.seek(trimStart);
+    } else if (current >= trimEnd) {
       if (loopTrimPreview) {
         videoRef.current?.seek(trimStart);
       } else {
@@ -292,17 +281,8 @@ export default function VideoEditorScreen({ route, navigation }) {
       }
     }
 
-    // Clamp if it somehow goes before the trimmed start
-    if (current < trimStart) {
-      videoRef.current?.seek(trimStart);
-    }
-
     setCurrentTime(current);
   };
-
-  // const onProgress = (data) => {
-  //   setCurrentTime(data.currentTime);
-  // };
 
   const togglePlayPause = () => {
     setPaused(prev => !prev);
@@ -381,11 +361,6 @@ export default function VideoEditorScreen({ route, navigation }) {
               trimEnd={trimEnd}
               setPaused={setPaused}
               onTrimChange={handleTrimChange}
-              // onTrimChange={(start, end) => {
-              //   setTrimStart(start);
-              //   setTrimEnd(end);
-              //   videoRef.current?.seek(start);
-              // }}
             />
           )}
 
