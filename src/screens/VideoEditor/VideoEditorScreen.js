@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject } from '../../utils/storage'; 
 import Video from 'react-native-video';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
+import TrimSlider from '../../components/TrimSlider'; 
 
 const { VideoEditorModule } = NativeModules;
 
@@ -331,35 +332,17 @@ export default function VideoEditorScreen({ route, navigation }) {
 
           {/* Trimming Controls */}
           <Text style={styles.subtitle}>Trim:</Text>
-          <Text style={{ fontSize: 12, marginTop: 4 }}>
-            Trimmed: Start {trimStart.toFixed(1)}s – End {trimEnd.toFixed(1)}s
-          </Text>
-
-          <Text style={{ fontSize: 12, marginTop: 4 }}>
-            Showing { (trimEnd - trimStart).toFixed(1) }s of { duration.toFixed(1) }s
-          </Text>
-
           {duration > 0 && (
-            <MultiSlider
-              values={[trimStart, trimEnd]}
-              sliderLength={300}
-              onValuesChange={(values) => {
-                const [start, end] = values;
+            <TrimSlider
+              duration={duration}
+              trimStart={trimStart}
+              trimEnd={trimEnd}
+              setPaused={setPaused}
+              onTrimChange={(start, end) => {
                 setTrimStart(start);
                 setTrimEnd(end);
-
-                // Force pause and seek immediately
-                if (videoRef.current) {
-                  videoRef.current.seek(start);
-                }
-                setPaused(true);
+                videoRef.current?.seek(start);
               }}
-              min={0}
-              max={duration}
-              step={0.1}
-              selectedStyle={{ backgroundColor: '#00f' }}
-              unselectedStyle={{ backgroundColor: '#888' }}
-              markerStyle={{ backgroundColor: '#fff' }}
             />
           )}
 
