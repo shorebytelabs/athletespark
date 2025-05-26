@@ -5,16 +5,58 @@ buildscript {
         compileSdkVersion = 34
         targetSdkVersion = 34
         ndkVersion = "25.1.8937393"
-        kotlinVersion = "1.8.0"
+        kotlinVersion = "1.9.10"  
+        reactNativeGradlePluginVersion = "0.73.11"
     }
     repositories {
         google()
         mavenCentral()
     }
     dependencies {
-        classpath("com.android.tools.build:gradle")
+        classpath("com.android.tools.build:gradle:8.1.1")
         classpath("com.facebook.react:react-native-gradle-plugin")
-        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+
+    // Force consistent Kotlin stdlib and related artifacts versions
+    configurations.all {
+        resolutionStrategy {
+            force "org.jetbrains.kotlin:kotlin-stdlib:1.9.10"
+            force "org.jetbrains.kotlin:kotlin-reflect:1.9.10"
+            force "org.jetbrains.kotlin:kotlin-stdlib-common:1.9.10"
+        }
+    }
+}
+
+subprojects {
+    afterEvaluate { project ->
+        // Enforce Kotlin version for dependencies within subprojects
+        project.configurations.all {
+            resolutionStrategy.eachDependency { details ->
+                if (details.requested.group == 'org.jetbrains.kotlin') {
+                    details.useVersion "1.9.10"
+                    details.because("Force Kotlin version for consistency")
+                }
+            }
+        }
+
+        project.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+            kotlinOptions {
+                jvmTarget = "17"
+                freeCompilerArgs += ["-Xopt-in=kotlin.RequiresOptIn"]
+            }
+            // Explicit JVM toolchain configuration to Java 17
+            kotlinJavaToolchain.toolchain.use(javaToolchains.launcherFor {
+                languageVersion.set(JavaLanguageVersion.of(17))
+            })
+        }
     }
 }
 

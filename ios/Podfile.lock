@@ -948,7 +948,7 @@ PODS:
     - glog
     - RCT-Folly (= 2022.05.16.00)
     - React-Core
-  - react-native-safe-area-context (5.4.0):
+  - react-native-safe-area-context (4.10.1):
     - React-Core
   - react-native-slider (4.5.6):
     - glog
@@ -1132,7 +1132,9 @@ PODS:
     - React-perflogger (= 0.73.11)
   - RNCAsyncStorage (2.1.2):
     - React-Core
-  - RNGestureHandler (2.25.0):
+  - RNCMaskedView (0.1.11):
+    - React
+  - RNGestureHandler (2.17.0):
     - glog
     - RCT-Folly (= 2022.05.16.00)
     - React-Core
@@ -1141,7 +1143,7 @@ PODS:
     - RCT-Folly (= 2022.05.16.00)
     - React-Core
     - ReactCommon/turbomodule/core
-  - RNScreens (4.10.0):
+  - RNScreens (4.2.0):
     - glog
     - RCT-Folly (= 2022.05.16.00)
     - React-Core
@@ -1227,6 +1229,7 @@ DEPENDENCIES:
   - React-utils (from `../node_modules/react-native/ReactCommon/react/utils`)
   - ReactCommon/turbomodule/core (from `../node_modules/react-native/ReactCommon`)
   - "RNCAsyncStorage (from `../node_modules/@react-native-async-storage/async-storage`)"
+  - "RNCMaskedView (from `../node_modules/@react-native-community/masked-view`)"
   - RNGestureHandler (from `../node_modules/react-native-gesture-handler`)
   - RNReanimated (from `../node_modules/react-native-reanimated`)
   - RNScreens (from `../node_modules/react-native-screens`)
@@ -1354,6 +1357,8 @@ EXTERNAL SOURCES:
     :path: "../node_modules/react-native/ReactCommon"
   RNCAsyncStorage:
     :path: "../node_modules/@react-native-async-storage/async-storage"
+  RNCMaskedView:
+    :path: "../node_modules/@react-native-community/masked-view"
   RNGestureHandler:
     :path: "../node_modules/react-native-gesture-handler"
   RNReanimated:
@@ -1404,7 +1409,7 @@ SPEC CHECKSUMS:
   React-logger: 6c1170f7bc315878ef4bd3b918e09130cf632798
   React-Mapbuffer: 41c166b84fc479afc78097cd51404109ec9edf68
   react-native-image-picker: 12963c597a56ac0a5459e2a649143142ef15ce40
-  react-native-safe-area-context: 8870dc3e45c8d241336cd8ee3fa3fc76f3a040ac
+  react-native-safe-area-context: dcab599c527c2d7de2d76507a523d20a0b83823d
   react-native-slider: 814abf5bd1fe10ffc7bce917ed977bb1fc3f9ec8
   react-native-video: 07795ce441b57a90bb7d065af86cda19ca786197
   React-nativeconfig: 8fd29a35a3e4e8c37682d976667663d834ba6165
@@ -1428,9 +1433,10 @@ SPEC CHECKSUMS:
   React-utils: eaaed6083fccd050a594baf1d72db5f949a3b9bb
   ReactCommon: 1a93f1ef5c6e33bf14b9563cdb8e7621a893aa37
   RNCAsyncStorage: addfc2cb6511dbe199c56c6b26ede383b6c38919
-  RNGestureHandler: b676e04d0f6f129771d922642cf8d914fc62383a
+  RNCMaskedView: 0e1bc4bfa8365eba5fbbb71e07fbdc0555249489
+  RNGestureHandler: 7386b219dadbb34d03c866509d1aa865ef3e3a78
   RNReanimated: dee37576492f1a375017515f5c77e66e5eec696b
-  RNScreens: 80b533643e2b111cb0ea4642d590d98cf956d7b2
+  RNScreens: 5cedaffd0091468b6d51708ea96f2df7d024b578
   SocketRocket: f32cd54efbe0f095c4d7594881e52619cfe80b17
   Yoga: a813a6d82538ccba91c54406404e3ed80b48a692
 
