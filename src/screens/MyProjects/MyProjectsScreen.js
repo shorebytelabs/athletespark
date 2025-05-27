@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useActionSheet } from '@expo/react-native-action-sheet';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getAllProjects, updateProject, saveProject } from '../../utils/storage';
 import {
   View,
   Text,
@@ -11,10 +10,14 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { getAllProjects, updateProject, saveProject } from '../../utils/storage';
+import { colors } from '../../theme/theme';
 
 export default function MyProjectsScreen({ navigation }) {
   const [projects, setProjects] = useState([]);
   const { showActionSheetWithOptions } = useActionSheet();
+
+  const accentColors = [colors.accent1, colors.accent2, colors.highlight];
 
   const loadProjects = async () => {
     const loaded = await getAllProjects();
@@ -106,27 +109,26 @@ export default function MyProjectsScreen({ navigation }) {
     <SafeAreaView style={styles.container}>
       <Text style={styles.title}>My Projects</Text>
       {projects.length === 0 ? (
-        <Text>No projects yet.</Text>
+        <Text style={styles.emptyMessage}>No projects yet.</Text>
       ) : (
         <FlatList
           data={projects}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
+          renderItem={({ item, index }) => (
             <SafeAreaView style={styles.projectItem}>
-              <TouchableOpacity
-                onPress={() =>
-                  navigation.navigate('VideoEditor', { project: item })
-                }
-              >
-                <Text style={styles.projectName}>{item.name}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => handleProjectOptions(item)}>
-                <Text
-                  style={[styles.menuDots, { transform: [{ rotate: '90deg' }] }]}
+              <View style={[styles.colorBar, { backgroundColor: accentColors[index % accentColors.length] }]} />
+              <View style={styles.projectContent}>
+                <TouchableOpacity
+                  onPress={() =>
+                    navigation.navigate('VideoEditor', { project: item })
+                  }
                 >
-                  ⋮
-                </Text>
-              </TouchableOpacity>
+                  <Text style={styles.projectName}>{item.name}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={() => handleProjectOptions(item)}>
+                  <Text style={styles.menuDots}>⋮</Text>
+                </TouchableOpacity>
+              </View>
             </SafeAreaView>
           )}
         />
@@ -140,36 +142,51 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingTop: 8,
     flex: 1,
-    backgroundColor: 'white',
+    backgroundColor: colors.background,
   },
   title: {
     fontSize: 20,
     fontWeight: 'bold',
     marginBottom: 6,
+    color: colors.textPrimary,
+  },
+  emptyMessage: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    paddingTop: 12,
+    textAlign: 'center',
   },
   projectItem: {
-    paddingVertical: 2,
-    paddingHorizontal: 12,
-    backgroundColor: '#f3f3f3',
-    marginBottom: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
     borderRadius: 6,
+    borderColor: colors.border,
+    borderWidth: 1,
+    marginBottom: 6,
+    overflow: 'hidden',
+  },
+  colorBar: {
+    width: 6,
+    height: '100%',
+    borderTopLeftRadius: 6,
+    borderBottomLeftRadius: 6,
+  },
+  projectContent: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
   projectName: {
     fontSize: 16,
-    lineHeight: 16,
-    includeFontPadding: false,
-    paddingVertical: 0,
-    marginVertical: 0,
+    color: colors.textPrimary,
   },
   menuDots: {
-    fontSize: 20,
-    lineHeight: 20,
+    fontSize: 24,
     fontWeight: 'bold',
-    includeFontPadding: false,
-    paddingVertical: 0,
-    marginVertical: 0,
+    color: colors.textPrimary,
   },
 });

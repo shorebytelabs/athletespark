@@ -2,7 +2,16 @@ import React from 'react';
 import { View, Text } from 'react-native';
 import MultiSlider from '@ptomasroos/react-native-multi-slider';
 
-const TrimSlider = ({ duration, trimStart, trimEnd, onTrimChange, setPaused }) => {
+const TrimSlider = ({
+  duration,
+  trimStart,
+  trimEnd,
+  onTrimChange,
+  setPaused,
+  minimumTrackTintColor = '#4a90e2',   // fallback colors if not provided
+  maximumTrackTintColor = '#ccc',
+  thumbTintColor = '#fff',
+}) => {
   return (
     <View style={{ alignItems: 'center', marginVertical: 20 }}>
       <MultiSlider
@@ -17,22 +26,22 @@ const TrimSlider = ({ duration, trimStart, trimEnd, onTrimChange, setPaused }) =
         onValuesChange={(values) => {
           onTrimChange(values[0], values[1]);
         }}
-        selectedStyle={{ backgroundColor: '#4a90e2' }}
-        unselectedStyle={{ backgroundColor: '#ccc' }}
+        selectedStyle={{ backgroundColor: minimumTrackTintColor }}
+        unselectedStyle={{ backgroundColor: maximumTrackTintColor }}
         containerStyle={{ height: 40 }}
         trackStyle={{ height: 6 }}
         markerStyle={{
           height: 20,
           width: 20,
           borderRadius: 10,
-          backgroundColor: '#fff',
+          backgroundColor: thumbTintColor,
           borderWidth: 2,
-          borderColor: '#4a90e2',
+          borderColor: minimumTrackTintColor,
         }}
         customMarker={({ currentValue }) => (
           <View style={{ alignItems: 'center' }}>
             <View style={{
-              backgroundColor: '#4a90e2',
+              backgroundColor: minimumTrackTintColor,
               paddingHorizontal: 6,
               paddingVertical: 2,
               borderRadius: 4,
@@ -46,9 +55,9 @@ const TrimSlider = ({ duration, trimStart, trimEnd, onTrimChange, setPaused }) =
               width: 20,
               height: 20,
               borderRadius: 10,
-              backgroundColor: '#fff',
+              backgroundColor: thumbTintColor,
               borderWidth: 2,
-              borderColor: '#4a90e2',
+              borderColor: minimumTrackTintColor,
             }} />
           </View>
         )}
@@ -60,8 +69,8 @@ const TrimSlider = ({ duration, trimStart, trimEnd, onTrimChange, setPaused }) =
         width: 300,
         marginTop: 4,
       }}>
-        <Text style={{ fontSize: 10 }}>0.0s</Text>
-        <Text style={{ fontSize: 10 }}>{duration.toFixed(1)}s</Text>
+        <Text style={{ fontSize: 10, color: minimumTrackTintColor }}>0.0s</Text>
+        <Text style={{ fontSize: 10, color: minimumTrackTintColor }}>{duration.toFixed(1)}s</Text>
       </View>
     </View>
   );

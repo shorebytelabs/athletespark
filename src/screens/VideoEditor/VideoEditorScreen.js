@@ -11,12 +11,16 @@ import {
   ScrollView,
   SafeAreaView,
   NativeModules,
+  Pressable,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject, getAllProjects } from '../../utils/storage'; 
 import Video from 'react-native-video';
 import TrimSlider from '../../components/TrimSlider'; 
 import { saveTrimInfo, loadTrimInfo, removeTrimInfo } from '../../utils/trimStorage';
+import { colors } from '../../theme/theme';
+import { useTheme } from '@react-navigation/native';
+import ClipNavigation from '../../navigation/ClipNavigation';
 
 const { VideoEditorModule } = NativeModules;
 
@@ -65,27 +69,27 @@ export default function VideoEditorScreen({ route, navigation }) {
   const getTrimStorageKey = (projectId, clipId) => `trim_${projectId}_${clipId}`;
 
   function onTrimChange(trimStart, trimEnd) {
-      setTrimStart(trimStart);
-      setTrimEnd(trimEnd);
-      saveTrimInfo(projectId, clipId, { startTime: trimStart, endTime: newEnd });
-    }
+    setTrimStart(trimStart);
+    setTrimEnd(trimEnd);
+    saveTrimInfo(projectId, clipId, { startTime: trimStart, endTime: trimEnd });
+  }
 
-    // Load trim info when project or clip changes
-    useEffect(() => {
-      async function fetchTrim() {
-        if (projectId && clipId) {
-          const savedTrim = await loadTrimInfo(projectId, clipId);
-          if (savedTrim) {
-            setTrimStart(savedTrim.startTime ?? 0);
-            setTrimEnd(savedTrim.endTime ?? duration); // fallback to duration
-          } else {
-            setTrimStart(0);
-            setTrimEnd(duration);
-          }
+  // Load trim info when project or clip changes
+  useEffect(() => {
+    async function fetchTrim() {
+      if (projectId && clipId) {
+        const savedTrim = await loadTrimInfo(projectId, clipId);
+        if (savedTrim) {
+          setTrimStart(savedTrim.startTime ?? 0);
+          setTrimEnd(savedTrim.endTime ?? duration); // fallback to duration
+        } else {
+          setTrimStart(0);
+          setTrimEnd(duration);
         }
       }
-      fetchTrim();
-    }, [projectId, clipId, duration]);
+    }
+    fetchTrim();
+  }, [projectId, clipId, duration]);
 
   // Load saved custom categories
   useEffect(() => {
@@ -107,17 +111,10 @@ export default function VideoEditorScreen({ route, navigation }) {
   }, [trimStart]);
 
   useEffect(() => {
-  if (currentClip) {
-    setTrimStart(currentClip.startTime ?? 0);
-    setTrimEnd(currentClip.endTime ?? currentClip.duration ?? 5);
-  }
-}, [currentClip]);
-
-  useEffect(() => {
-    const start = currentClip?.startTime ?? 0;
-    const end = currentClip?.endTime ?? currentClip?.duration ?? 5;
-    setTrimStart(start);
-    setTrimEnd(end);
+    if (currentClip) {
+      setTrimStart(currentClip.startTime ?? 0);
+      setTrimEnd(currentClip.endTime ?? currentClip.duration ?? 5);
+    }
   }, [currentClip]);
 
   // When trimStart changes, seek to that time, but only if duration is valid
@@ -316,6 +313,16 @@ export default function VideoEditorScreen({ route, navigation }) {
     if (currentIndex > 0) setCurrentIndex(currentIndex - 1);
   };
 
+  if (!currentClip || !currentClip.uri) {
+    return (
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.container}>
+          <Text style={styles.title}>No clip selected or clip is missing data.</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -328,7 +335,7 @@ export default function VideoEditorScreen({ route, navigation }) {
            <View style={styles.videoContainer}>
             <Video
               ref={videoRef}
-              source={{ uri: currentClip.uri }}
+              source={currentClip?.uri ? { uri: currentClip.uri } : undefined}
               onLoad={onLoad}
               onError={onError}
               onProgress={onProgress}
@@ -342,7 +349,7 @@ export default function VideoEditorScreen({ route, navigation }) {
           <View style={styles.videoWrapper}>
             <Video
               ref={videoRef}
-              source={{ uri: currentClip.uri }}
+              source={currentClip?.uri ? { uri: currentClip.uri } : undefined}
               onLoad={onLoad}
               onError={onError}
               onProgress={onProgress}
@@ -366,7 +373,7 @@ export default function VideoEditorScreen({ route, navigation }) {
           </View>
 
           {/* Trimming Controls */}
-          <Text style={styles.subtitle}>Trim:</Text>
+          <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Trim:</Text>
           {duration > 0 && (
             <TrimSlider
               duration={duration}
@@ -374,11 +381,14 @@ export default function VideoEditorScreen({ route, navigation }) {
               trimEnd={trimEnd}
               setPaused={setPaused}
               onTrimChange={handleTrimChange}
+              minimumTrackTintColor={colors.accent1}   
+              maximumTrackTintColor={colors.surface}   
+              thumbTintColor={colors.accent1}          
             />
           )}
 
           {/* Categories */}
-          <Text style={styles.subtitle}>Select Category:</Text>
+          <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Select Category:</Text>
           <View style={styles.categoryList}>
             {allCategories.map((cat) => {
               const isCustom = customCategories.includes(cat);
@@ -416,21 +426,35 @@ export default function VideoEditorScreen({ route, navigation }) {
 
           {/* Tracking toggle */}
           <View style={styles.trackingContainer}>
-            <Text style={styles.subtitle}>Athlete Tracking:</Text>
-            <Button
-              title={trackingEnabled ? 'Disable' : 'Enable'}
+            <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Athlete Tracking:</Text>
+
+            <TouchableOpacity
               onPress={() => setTrackingEnabled(!trackingEnabled)}
-            />
+              style={{
+                backgroundColor: trackingEnabled ? colors.danger : colors.accent1,
+                paddingVertical: 8,
+                paddingHorizontal: 16,
+                borderRadius: 8,
+              }}
+            >
+              <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>
+                {trackingEnabled ? 'Disable' : 'Enable'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <View style={{ height: 80 }} />
         </ScrollView>
 
         {/* Fixed footer navigation buttons */}
-        <View style={styles.navButtonsFixed}>
-          <Button title="Previous" onPress={goPrev} disabled={currentIndex === 0} />
-          <Button title="Next" onPress={goNext} />
-        </View>
+        <SafeAreaView style={styles.bottomNavContainer}>
+          <ClipNavigation
+            currentIndex={currentIndex}
+            totalClips={clips.length}
+            onNext={goNext}
+            onPrevious={goPrev}
+          />
+        </SafeAreaView>
 
         {/* Modal for creating new category */}
         <Modal
@@ -441,21 +465,45 @@ export default function VideoEditorScreen({ route, navigation }) {
         >
           <View style={styles.modalOverlay}>
             <View style={styles.modalContainer}>
-              <Text style={{ fontWeight: 'bold', fontSize: 18, marginBottom: 12 }}>
+              <Text style={{ fontWeight: 'bold', fontSize: 18, marginBottom: 12, color: colors.textPrimary }}>
                 Create New Category
               </Text>
               <TextInput
                 style={styles.input}
                 placeholder="Category name"
+                placeholderTextColor={colors.placeholder}
                 value={newCategoryName}
                 onChangeText={setNewCategoryName}
                 autoFocus
               />
-              <View
-                style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}
-              >
-                <Button title="Cancel" onPress={() => setModalVisible(false)} />
-                <Button title="Add" onPress={addCustomCategory} />
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
+                <TouchableOpacity
+                  onPress={() => setModalVisible(false)}
+                  style={{
+                    backgroundColor: colors.accent2,
+                    paddingVertical: 10,
+                    paddingHorizontal: 20,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: colors.textPrimary, fontWeight: '600', textAlign: 'center' }}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={addCustomCategory}
+                  style={{
+                    backgroundColor: colors.accent1,
+                    paddingVertical: 10,
+                    paddingHorizontal: 20,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ color: colors.textPrimary, fontWeight: '600', textAlign: 'center' }}>
+                    Add
+                  </Text>
+                </TouchableOpacity>
               </View>
             </View>
           </View>
@@ -466,24 +514,46 @@ export default function VideoEditorScreen({ route, navigation }) {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: '#fff' },
-  container: { flex: 1, backgroundColor: '#fff' },
-  inner: { padding: 16 },
-  label: { fontSize: 16, marginBottom: 8 },
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  inner: {
+    padding: 16,
+  },
+  label: {
+    fontSize: 16,
+    marginBottom: 8,
+    color: colors.textPrimary,
+  },
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 80,
   },
-  title: { fontSize: 20, fontWeight: 'bold', marginBottom: 12 },
+  title: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 12,
+    color: colors.textPrimary,
+  },
   videoContainer: {
     height: 200,
-    backgroundColor: '#ddd',
+    backgroundColor: colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
   },
-  subtitle: { fontSize: 14, marginBottom: 4, fontWeight: 'bold' },
+  subtitle: {
+    fontSize: 14,
+    marginBottom: 4,
+    fontWeight: 'bold',
+    color: colors.textSecondary,
+  },
   categoryList: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -499,36 +569,36 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 16,
-    backgroundColor: '#eee',
+    backgroundColor: colors.surface,
     justifyContent: 'center',
     alignItems: 'center',
   },
   categoryButtonSelected: {
-    backgroundColor: '#007AFF',
+    backgroundColor: colors.accent1,
   },
   categoryButtonText: {
     fontSize: 12,
-    color: '#333',
+    color: colors.textSecondary,
   },
   categoryButtonTextSelected: {
-    color: '#fff',
+    color: colors.textPrimary,
   },
   deleteIconContainer: {
     position: 'absolute',
     top: -8,
     right: -8,
-    backgroundColor: '#eee',
+    backgroundColor: colors.surface,
     borderRadius: 10,
     width: 20,
     height: 20,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#999',
+    borderColor: colors.border,
     zIndex: 1,
   },
   deleteIcon: {
-    color: '#666',
+    color: colors.textSecondary,
     fontWeight: 'bold',
     fontSize: 14,
     lineHeight: 14,
@@ -540,7 +610,7 @@ const styles = StyleSheet.create({
     right: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: '#fff',
+    backgroundColor: colors.surface,
     paddingVertical: 10,
     paddingHorizontal: 12,
     borderRadius: 12,
@@ -557,47 +627,45 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: colors.overlay,
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
   modalContainer: {
-    backgroundColor: 'white',
+    backgroundColor: colors.surface,
     padding: 20,
     borderRadius: 12,
     elevation: 5,
   },
   input: {
-    borderColor: '#ccc',
+    borderColor: colors.border,
     borderWidth: 1,
     borderRadius: 6,
     paddingHorizontal: 12,
     paddingVertical: 8,
     fontSize: 16,
+    color: colors.textPrimary,
+    backgroundColor: colors.inputBackground,
   },
   video: {
     width: '100%',
     height: '100%',
-    backgroundColor: '#000',
+    backgroundColor: colors.background,
   },
   inputRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginVertical: 16,
   },
-  inputGroup: { flex: 1, marginRight: 8 },
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    borderRadius: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginTop: 4,
+  inputGroup: {
+    flex: 1,
+    marginRight: 8,
   },
   heading: {
     fontSize: 22,
     fontWeight: 'bold',
     marginBottom: 12,
+    color: colors.textPrimary,
   },
   trimControls: {
     flexDirection: 'row',
@@ -611,8 +679,8 @@ const styles = StyleSheet.create({
   videoWrapper: {
     position: 'relative',
     width: '100%',
-    aspectRatio: 16 / 9, // or adjust based on your video
-    backgroundColor: '#000', // fallback background behind video
+    aspectRatio: 16 / 9,
+    backgroundColor: colors.background,
   },
   playbackControls: {
     position: 'absolute',
@@ -622,35 +690,35 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    paddingVertical: 2,    // reduced from 8 to 4
+    backgroundColor: colors.overlay,
+    paddingVertical: 2,
     paddingHorizontal: 12,
     borderBottomLeftRadius: 12,
     borderBottomRightRadius: 12,
   },
   playPauseButton: {
-    backgroundColor: '#ffffff20',
-    paddingVertical: 2,    // reduced from 6 to 4
-    paddingHorizontal: 10, // reduced slightly from 14 to 12
+    backgroundColor: 'rgba(255, 255, 255, 0.125)', // semi-transparent white (like '#ffffff20')
+    paddingVertical: 2,
+    paddingHorizontal: 10,
     borderRadius: 8,
   },
   playPauseText: {
-    color: '#fff',
-    fontSize: 12,          // reduced from 16 to 14
+    color: colors.textPrimary,
+    fontSize: 12,
     fontWeight: '600',
   },
   playbackTime: {
-    color: '#fff',
-    fontSize: 10,          // reduced from 14 to 12
+    color: colors.textPrimary,
+    fontSize: 10,
     fontVariant: ['tabular-nums'],
   },
   iconButton: {
-    borderRadius: 30,    // Circular touch area
+    borderRadius: 30,
     overflow: 'hidden',
   },
   iconBackground: {
-    backgroundColor: 'black',
-    borderRadius: 20,    // Circle background for icon
+    backgroundColor: colors.background,
+    borderRadius: 20,
     width: 40,
     height: 40,
     justifyContent: 'center',

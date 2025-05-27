@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, Alert, StyleSheet, ActivityIndicator } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
 import { saveProject } from '../../utils/storage';
+import { colors } from '../../theme/theme';
 
 const MAX_CLIPS = 5;
 const MAX_DURATION = 20; // seconds
@@ -23,7 +24,6 @@ export default function CreateProjectScreen({ navigation }) {
           setPicking(false);
 
           if (response.didCancel) {
-            // User cancelled, go back or something
             navigation.goBack();
             return;
           }
@@ -92,15 +92,13 @@ export default function CreateProjectScreen({ navigation }) {
   }, [picking, navigation]);
 
   if (picking) {
-    // Show nothing or spinner while picking
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#000" />
+        <ActivityIndicator size="large" color={colors.accent1} />
       </View>
     );
   }
 
-  // Optional: You can render clips summary if you want after picking
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Selected Clips</Text>
@@ -119,16 +117,36 @@ export default function CreateProjectScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  container: { padding: 16, flex: 1, backgroundColor: 'white' },
-  title: { fontSize: 18, fontWeight: 'bold', marginBottom: 10 },
+  loadingContainer: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    backgroundColor: colors.background,
+  },
+  container: { 
+    flex: 1,
+    padding: 16, 
+    backgroundColor: colors.background,
+  },
+  title: { 
+    fontSize: 18, 
+    fontWeight: 'bold', 
+    marginBottom: 10,
+    color: colors.textPrimary,
+  },
   clip: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 8,
-    backgroundColor: '#eee',
+    padding: 12,
+    backgroundColor: colors.surface,
     marginVertical: 4,
-    borderRadius: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  clipText: { fontSize: 14, maxWidth: '90%' },
+  clipText: { 
+    fontSize: 14, 
+    maxWidth: '90%',
+    color: colors.textPrimary,
+  },
 });
