@@ -20,6 +20,7 @@
     "@react-navigation/native-stack": "^6.9.12",
     "react": "18.2.0",
     "react-native": "0.73.11",
+    "react-native-fs": "^2.20.0",
     "react-native-gesture-handler": "^2.17.0",
     "react-native-image-picker": "8.2.1",
     "react-native-reanimated": "3.6.1",

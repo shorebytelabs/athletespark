@@ -19,8 +19,9 @@ import Video from 'react-native-video';
 import TrimSlider from '../../components/TrimSlider'; 
 import { saveTrimInfo, loadTrimInfo, removeTrimInfo } from '../../utils/trimStorage';
 import { colors } from '../../theme/theme';
-import { useTheme } from '@react-navigation/native';
+//import { useTheme } from '@react-navigation/native';
 import ClipNavigation from '../../navigation/ClipNavigation';
+import RNFS from 'react-native-fs';
 
 const { VideoEditorModule } = NativeModules;
 
@@ -35,6 +36,10 @@ const defaultCategories = [
 ];
 
 const CUSTOM_CATEGORIES_KEY = 'CUSTOM_CATEGORIES';
+
+function uriToPath(uri) {
+  return uri.startsWith('file://') ? uri.replace('file://', '') : uri;
+}
 
 export default function VideoEditorScreen({ route, navigation }) {
   const { project, onClipUpdate, currentClip: routeCurrentClip} = route.params ?? {};
@@ -56,23 +61,13 @@ export default function VideoEditorScreen({ route, navigation }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [paused, setPaused] = useState(false);
   const [loopTrimPreview, setLoopTrimPreview] = useState(true);
-  const trimKey = currentClip
-    ? `trim-${currentClip.id || currentClip.uri}`
-    : 'trim-unknown';
 
   const [isTrimming, setIsTrimming] = useState(false);
+  const [isBatchExporting, setIsBatchExporting] = useState(false);
+  const [batchExportProgress, setBatchExportProgress] = useState({ current: 0, total: 0 });
 
   const projectId = project?.id;
   const clipId = currentClip?.id || currentClip?.uri;
-
-  // Helper function to generate a unique storage key per project+clip
-  const getTrimStorageKey = (projectId, clipId) => `trim_${projectId}_${clipId}`;
-
-  function onTrimChange(trimStart, trimEnd) {
-    setTrimStart(trimStart);
-    setTrimEnd(trimEnd);
-    saveTrimInfo(projectId, clipId, { startTime: trimStart, endTime: trimEnd });
-  }
 
   // Load trim info when project or clip changes
   useEffect(() => {
@@ -110,13 +105,6 @@ export default function VideoEditorScreen({ route, navigation }) {
     }
   }, [trimStart]);
 
-  useEffect(() => {
-    if (currentClip) {
-      setTrimStart(currentClip.startTime ?? 0);
-      setTrimEnd(currentClip.endTime ?? currentClip.duration ?? 5);
-    }
-  }, [currentClip]);
-
   // When trimStart changes, seek to that time, but only if duration is valid
   useEffect(() => {
     if (videoRef.current && trimStart < trimEnd && duration > 0) {
@@ -127,18 +115,29 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   // Save trim info whenever trim changes
   const handleTrimChange = async (start, end) => {
-    setTrimStart(start);
-    setTrimEnd(end);
-    setPaused(true);
-    if (videoRef.current) videoRef.current.seek(start);
+  setTrimStart(start);
+  setTrimEnd(end);
+  setPaused(true);
 
-    if (projectId && clipId) {
-      try {
-        await saveTrimInfo(projectId, clipId, { startTime: start, endTime: end });
-      } catch (e) {
-        console.error('Failed to save trim info:', e);
-      }
+  if (videoRef.current) videoRef.current.seek(start);
+
+  // Save locally in clips array
+  const updatedClips = [...clips];
+  updatedClips[currentIndex] = {
+    ...updatedClips[currentIndex],
+    trimStart: start,
+    trimEnd: end,
+  };
+  setClips(updatedClips);
+
+  // Persist if needed
+  if (projectId && clipId) {
+    try {
+      await saveTrimInfo(projectId, clipId, { startTime: start, endTime: end });
+    } catch (e) {
+      console.error('Failed to save trim info:', e);
     }
+  }
   };
 
   const saveEditedClipsToProject = async () => {
@@ -229,42 +228,26 @@ export default function VideoEditorScreen({ route, navigation }) {
     );
   };
 
-  const handleTrimAndExport = async () => {
+  const handleBatchExport = async () => {
     try {
-      setIsTrimming(true);
+      await saveEditedClipsToProject(); // ensure latest trim info is saved
 
-      const inputPath = currentClip.uri.replace('file://', '');
-      const basePath = inputPath.replace(/\.\w+$/, '');
-      const timestamp = Date.now();
-      const outputPath = `${basePath}_trimmed_${timestamp}.mov`;
+      const outputPath = `${RNFS.CachesDirectoryPath}/merged_${Date.now()}.mov`;
 
-      const result = await VideoEditorModule.trimVideo(
-        inputPath,
-        trimStart,
-        trimEnd,
+      const result = await NativeModules.VideoEditorModule.concatenateTrimmedClips(
+        clips.map(c => ({
+          path: uriToPath(c.uri),
+          trimStart: c.trimStart ?? 0,
+          trimEnd: c.trimEnd ?? c.duration ?? 5,
+        })),
         outputPath
       );
 
-      const newUri = 'file://' + result;
-      const updatedClip = {
-        ...currentClip,
-        uri: newUri,
-        trimStart,
-        trimEnd,
-      };
-
-      const updatedClips = [...clips];
-      updatedClips[currentIndex] = updatedClip;
-      setClips(updatedClips);
-
-      if (onClipUpdate) onClipUpdate(updatedClip);
-
-      Alert.alert('Success', `Trimmed video saved:\n${newUri}`);
-    } catch (e) {
-      console.error('Video trimming failed', e);
-      Alert.alert('Error', 'Failed to trim the video.');
-    } finally {
-      setIsTrimming(false);
+      console.log('Merged export successful:', result);
+      Alert.alert('Success', 'All clips exported as a single video.');
+    } catch (error) {
+      console.error('Merged export failed:', error);
+      Alert.alert('Error', 'Failed to export clips.');
     }
   };
 
@@ -332,7 +315,7 @@ export default function VideoEditorScreen({ route, navigation }) {
           </Text>
 
           {/* Video Player Placeholder */}
-           <View style={styles.videoContainer}>
+           {/* <View style={styles.videoContainer}>
             <Video
               ref={videoRef}
               source={currentClip?.uri ? { uri: currentClip.uri } : undefined}
@@ -344,8 +327,9 @@ export default function VideoEditorScreen({ route, navigation }) {
               controls={true}
               paused={paused}
             />
-          </View> 
+          </View>  */}
 
+          {/* Video Player */}
           <View style={styles.videoWrapper}>
             <Video
               ref={videoRef}
@@ -386,6 +370,11 @@ export default function VideoEditorScreen({ route, navigation }) {
               thumbTintColor={colors.accent1}          
             />
           )}
+          <TouchableOpacity onPress={() => setLoopTrimPreview(!loopTrimPreview)}>
+            <Text style={styles.loopToggle}>
+              {loopTrimPreview ? 'Loop On' : 'Loop Off'}
+            </Text>
+          </TouchableOpacity>
 
           {/* Categories */}
           <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Select Category:</Text>
@@ -441,6 +430,16 @@ export default function VideoEditorScreen({ route, navigation }) {
                 {trackingEnabled ? 'Disable' : 'Enable'}
               </Text>
             </TouchableOpacity>
+          </View>
+
+          {/* Export */}
+          <View style={styles.exportControls}>
+            <Button title="Batch Export All Clips" onPress={handleBatchExport} />
+            {isBatchExporting && (
+              <Text>
+                Exporting {batchExportProgress.current}/{batchExportProgress.total}
+              </Text>
+            )}
           </View>
 
           <View style={{ height: 80 }} />
@@ -723,5 +722,9 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  exportControls: { 
+    marginTop: 20, 
+    gap: 10 
   },
 });
