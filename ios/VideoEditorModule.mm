@@ -8,9 +8,24 @@
 
 @implementation VideoEditorModule
 
-RCT_EXPORT_MODULE(VideoEditorModule);
+- (void)saveVideoToPhotos:(NSString *)videoPath {
+  NSURL *videoURL = [NSURL fileURLWithPath:videoPath];
 
-// ✅ Save to Photos helper
+  [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
+    [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:videoURL];
+  } completionHandler:^(BOOL success, NSError * _Nullable error) {
+    if (success) {
+      NSLog(@"✅ Video saved to Photos");
+    } else {
+      NSLog(@"❌ Failed to save video: %@", error.localizedDescription);
+    }
+  }];
+}
+
+RCT_EXPORT_MODULE(VideoEditor);
+
+#pragma mark - Helpers
+
 - (void)saveToPhotoLibrary:(NSURL *)videoURL completion:(void (^)(BOOL success, NSError *error))completion {
   [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
     [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:videoURL];
@@ -21,19 +36,55 @@ RCT_EXPORT_MODULE(VideoEditorModule);
   }];
 }
 
-// ✅ Trim a video
-RCT_EXPORT_METHOD(trimVideo:(NSString *)inputPath
-                  startTime:(nonnull NSNumber *)start
-                  endTime:(nonnull NSNumber *)end
-                  outputPath:(NSString *)outputPath
+#pragma mark - Unified Entry Point
+
+RCT_EXPORT_METHOD(processVideo:(NSDictionary *)options
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
+  NSString *type = options[@"type"];
+  if ([type isEqualToString:@"trim"]) {
+    [self handleTrim:options resolver:resolve rejecter:reject];
+  } else if ([type isEqualToString:@"merge"] || [type isEqualToString:@"concat"]) {
+    [self handleMerge:options resolver:resolve rejecter:reject];
+  } else {
+    reject(@"unsupported_type", @"Unknown processing type", nil);
+  }
+}
+
+#pragma mark - Save to camera roll
+
+RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+  NSURL *videoURL = [NSURL fileURLWithPath:videoPath];
+  [[PHPhotoLibrary sharedPhotoLibrary] performChanges:^{
+    [PHAssetChangeRequest creationRequestForAssetFromVideoAtFileURL:videoURL];
+  } completionHandler:^(BOOL success, NSError * _Nullable error) {
+    if (success) {
+      resolve(@(YES));
+    } else {
+      reject(@"save_error", @"Failed to save video to Photos", error);
+    }
+  }];
+}
+
+
+#pragma mark - Trim Handler
+
+- (void)handleTrim:(NSDictionary *)options
+          resolver:(RCTPromiseResolveBlock)resolve
+          rejecter:(RCTPromiseRejectBlock)reject {
+  NSString *inputPath = options[@"inputPath"];
+  NSString *outputPath = options[@"outputPath"];
+  NSNumber *start = options[@"startTime"];
+  NSNumber *end = options[@"endTime"];
+
   NSURL *inputURL = [NSURL fileURLWithPath:inputPath];
   NSURL *outputURL = [NSURL fileURLWithPath:outputPath];
 
   NSLog(@"[VideoEditor] Trimming video: %@", inputPath);
-  NSLog(@"[VideoEditor] Output path: %@", outputPath);
 
   NSString *outputDir = [outputPath stringByDeletingLastPathComponent];
   BOOL isDir;
@@ -69,9 +120,7 @@ RCT_EXPORT_METHOD(trimVideo:(NSString *)inputPath
     return;
   }
 
-  AVAssetExportSession *exportSession = [[AVAssetExportSession alloc]
-                                         initWithAsset:asset
-                                         presetName:AVAssetExportPresetHighestQuality];
+  AVAssetExportSession *exportSession = [[AVAssetExportSession alloc] initWithAsset:asset presetName:AVAssetExportPresetHighestQuality];
   if (!exportSession) {
     reject(@"export_error", @"Could not create AVAssetExportSession", nil);
     return;
@@ -81,12 +130,9 @@ RCT_EXPORT_METHOD(trimVideo:(NSString *)inputPath
   exportSession.outputFileType = AVFileTypeQuickTimeMovie;
   exportSession.timeRange = CMTimeRangeFromTimeToTime(startTime, endTime);
 
-  NSLog(@"[VideoEditor] Trimming from %.2f to %.2f seconds", [start doubleValue], [end doubleValue]);
-
   [exportSession exportAsynchronouslyWithCompletionHandler:^{
     switch (exportSession.status) {
       case AVAssetExportSessionStatusCompleted: {
-        NSLog(@"[VideoEditor] Trim export completed");
         [self saveToPhotoLibrary:outputURL completion:^(BOOL success, NSError *error) {
           if (success) {
             resolve(outputPath);
@@ -97,20 +143,14 @@ RCT_EXPORT_METHOD(trimVideo:(NSString *)inputPath
         break;
       }
       case AVAssetExportSessionStatusFailed: {
-        NSLog(@"[VideoEditor] Trim export failed: %@", exportSession.error.localizedDescription);
         reject(@"export_failed", exportSession.error.localizedDescription, exportSession.error);
         break;
       }
       case AVAssetExportSessionStatusCancelled: {
-        NSLog(@"[VideoEditor] Trim export cancelled");
         reject(@"export_cancelled", @"Export cancelled", nil);
         break;
       }
       default: {
-        NSLog(@"[VideoEditor] Trim unknown export status: %ld", (long)exportSession.status);
-        if (exportSession.error) {
-          NSLog(@"[VideoEditor] Error: %@", exportSession.error.localizedDescription);
-        }
         reject(@"export_unknown", @"Unknown export status", exportSession.error);
         break;
       }
@@ -118,19 +158,19 @@ RCT_EXPORT_METHOD(trimVideo:(NSString *)inputPath
   }];
 }
 
-// ✅ Concatenate multiple trimmed clips
-RCT_EXPORT_METHOD(concatenateTrimmedClips:(NSArray *)clips
-                  outputPath:(NSString *)outputPath
-                  resolver:(RCTPromiseResolveBlock)resolve
-                  rejecter:(RCTPromiseRejectBlock)reject)
-{
-  NSLog(@"[VideoEditor] Concatenating %lu clips", (unsigned long)[clips count]);
+#pragma mark - Merge Handler
+
+- (void)handleMerge:(NSDictionary *)options
+           resolver:(RCTPromiseResolveBlock)resolve
+           rejecter:(RCTPromiseRejectBlock)reject {
+  NSArray *clips = options[@"clips"];
+  NSString *outputPath = options[@"outputPath"];
 
   AVMutableComposition *composition = [AVMutableComposition composition];
   CMTime currentTime = kCMTimeZero;
 
-  AVMutableCompositionTrack *compositionVideoTrack = [composition addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:kCMPersistentTrackID_Invalid];
-  AVMutableCompositionTrack *compositionAudioTrack = [composition addMutableTrackWithMediaType:AVMediaTypeAudio preferredTrackID:kCMPersistentTrackID_Invalid];
+  AVMutableCompositionTrack *videoTrack = [composition addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:kCMPersistentTrackID_Invalid];
+  AVMutableCompositionTrack *audioTrack = [composition addMutableTrackWithMediaType:AVMediaTypeAudio preferredTrackID:kCMPersistentTrackID_Invalid];
 
   for (NSDictionary *clip in clips) {
     NSString *path = clip[@"path"];
@@ -142,67 +182,42 @@ RCT_EXPORT_METHOD(concatenateTrimmedClips:(NSArray *)clips
       return;
     }
 
-    NSURL *clipURL = [NSURL fileURLWithPath:path];
-    AVAsset *asset = [AVAsset assetWithURL:clipURL];
-
+    NSURL *url = [NSURL fileURLWithPath:path];
+    AVAsset *asset = [AVAsset assetWithURL:url];
     if (!asset) {
-      NSString *errMsg = [NSString stringWithFormat:@"Failed to load asset at %@", path];
-      NSLog(@"[VideoEditor] %@", errMsg);
-      reject(@"asset_load_failed", errMsg, nil);
+      reject(@"asset_load_failed", [NSString stringWithFormat:@"Failed to load asset at %@", path], nil);
       return;
     }
 
-    NSLog(@"[VideoEditor] Adding clip: %@", path);
-
-    // Calculate trim range
     CMTime duration = asset.duration;
     CMTime startTime = CMTimeMakeWithSeconds([start doubleValue], duration.timescale);
     CMTime endTime = CMTimeMakeWithSeconds([end doubleValue], duration.timescale);
 
     if (CMTIME_COMPARE_INLINE(startTime, >=, endTime) || CMTIME_COMPARE_INLINE(endTime, >, duration)) {
-      NSString *msg = [NSString stringWithFormat:@"Invalid trim range: start %.2f, end %.2f, duration %.2f",
-                       CMTimeGetSeconds(startTime), CMTimeGetSeconds(endTime), CMTimeGetSeconds(duration)];
-      NSLog(@"[VideoEditor] %@", msg);
-      reject(@"invalid_trim", msg, nil);
+      reject(@"invalid_trim", @"Invalid trim range", nil);
       return;
     }
 
     CMTimeRange timeRange = CMTimeRangeFromTimeToTime(startTime, endTime);
 
     NSError *videoError = nil;
-    AVAssetTrack *videoTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
-    if (videoTrack) {
-      BOOL success = [compositionVideoTrack insertTimeRange:timeRange
-                                                    ofTrack:videoTrack
-                                                     atTime:currentTime
-                                                      error:&videoError];
-      if (!success || videoError) {
-        NSLog(@"[VideoEditor] Video insert error: %@", videoError.localizedDescription);
-        reject(@"video_insert_failed", @"Failed to insert video", videoError);
-        return;
-      }
+    AVAssetTrack *vTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
+    if (vTrack && ![videoTrack insertTimeRange:timeRange ofTrack:vTrack atTime:currentTime error:&videoError]) {
+      reject(@"video_insert_failed", @"Failed to insert video", videoError);
+      return;
     }
 
-    AVAssetTrack *audioTrack = [[asset tracksWithMediaType:AVMediaTypeAudio] firstObject];
-    if (audioTrack) {
+    AVAssetTrack *aTrack = [[asset tracksWithMediaType:AVMediaTypeAudio] firstObject];
+    if (aTrack) {
       NSError *audioError = nil;
-      [compositionAudioTrack insertTimeRange:timeRange
-                                     ofTrack:audioTrack
-                                      atTime:currentTime
-                                       error:&audioError];
-      if (audioError) {
-        NSLog(@"[VideoEditor] Audio insert error: %@", audioError.localizedDescription);
-      }
+      [audioTrack insertTimeRange:timeRange ofTrack:aTrack atTime:currentTime error:&audioError];
     }
 
-    CMTime clipDuration = CMTimeSubtract(endTime, startTime);
-    currentTime = CMTimeAdd(currentTime, clipDuration);
+    currentTime = CMTimeAdd(currentTime, CMTimeSubtract(endTime, startTime));
   }
 
   NSURL *outputURL = [NSURL fileURLWithPath:outputPath];
-  if ([[NSFileManager defaultManager] fileExistsAtPath:[outputURL path]]) {
-    [[NSFileManager defaultManager] removeItemAtURL:outputURL error:nil];
-  }
+  [[NSFileManager defaultManager] removeItemAtURL:outputURL error:nil];
 
   AVAssetExportSession *exportSession = [[AVAssetExportSession alloc] initWithAsset:composition presetName:AVAssetExportPresetHighestQuality];
   exportSession.outputURL = outputURL;
@@ -211,7 +226,6 @@ RCT_EXPORT_METHOD(concatenateTrimmedClips:(NSArray *)clips
   [exportSession exportAsynchronouslyWithCompletionHandler:^{
     switch (exportSession.status) {
       case AVAssetExportSessionStatusCompleted: {
-        NSLog(@"[VideoEditor] Concatenation completed");
         [self saveToPhotoLibrary:outputURL completion:^(BOOL success, NSError *error) {
           if (success) {
             resolve(outputPath);
@@ -222,20 +236,14 @@ RCT_EXPORT_METHOD(concatenateTrimmedClips:(NSArray *)clips
         break;
       }
       case AVAssetExportSessionStatusFailed: {
-        NSLog(@"[VideoEditor] Export failed: %@", exportSession.error.localizedDescription);
         reject(@"concat_export_failed", exportSession.error.localizedDescription, exportSession.error);
         break;
       }
       case AVAssetExportSessionStatusCancelled: {
-        NSLog(@"[VideoEditor] Export cancelled");
         reject(@"concat_export_cancelled", @"Export cancelled", nil);
         break;
       }
       default: {
-        NSLog(@"[VideoEditor] Unknown export status: %ld", (long)exportSession.status);
-        if (exportSession.error) {
-          NSLog(@"[VideoEditor] Error: %@", exportSession.error.localizedDescription);
-        }
         reject(@"concat_export_unknown", @"Unknown export status", exportSession.error);
         break;
       }

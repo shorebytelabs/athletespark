@@ -19,11 +19,9 @@ import Video from 'react-native-video';
 import TrimSlider from '../../components/TrimSlider'; 
 import { saveTrimInfo, loadTrimInfo, removeTrimInfo } from '../../utils/trimStorage';
 import { colors } from '../../theme/theme';
-//import { useTheme } from '@react-navigation/native';
 import ClipNavigation from '../../navigation/ClipNavigation';
 import RNFS from 'react-native-fs';
-
-const { VideoEditorModule } = NativeModules;
+import VideoEditorNativeModule from '../../nativemodules/VideoEditorNativeModule';
 
 const defaultCategories = [
   'Goal',
@@ -230,24 +228,28 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const handleBatchExport = async () => {
     try {
-      await saveEditedClipsToProject(); // ensure latest trim info is saved
+      await saveEditedClipsToProject();
 
-      const outputPath = `${RNFS.CachesDirectoryPath}/merged_${Date.now()}.mov`;
+      // Prepare clips array with path + trim info
+      const clipsToMerge = clips.map(clip => ({
+        path: uriToPath(clip.uri),
+        trimStart: clip.trimStart ?? 0,
+        trimEnd: clip.trimEnd ?? clip.duration,
+      }));
 
-      const result = await NativeModules.VideoEditorModule.concatenateTrimmedClips(
-        clips.map(c => ({
-          path: uriToPath(c.uri),
-          trimStart: c.trimStart ?? 0,
-          trimEnd: c.trimEnd ?? c.duration ?? 5,
-        })),
-        outputPath
-      );
+      const outputPath = `${RNFS.CachesDirectoryPath}/merged_output_${Date.now()}.mov`; // or .mp4
 
-      console.log('Merged export successful:', result);
-      Alert.alert('Success', 'All clips exported as a single video.');
+      const mergedVideoPath = await VideoEditorNativeModule.process({
+        type: 'merge',
+        clips: clipsToMerge,
+        outputPath,
+      });
+
+      Alert.alert('Success', 'Merged video exported to Camera Roll');
+
     } catch (error) {
-      console.error('Merged export failed:', error);
-      Alert.alert('Error', 'Failed to export clips.');
+      console.error('Batch export failed:', error);
+      Alert.alert('Error', 'Failed to export merged video.');
     }
   };
 
