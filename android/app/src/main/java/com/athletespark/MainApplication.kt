@@ -1,5 +1,7 @@
 package com.athletespark
 
+import com.athletespark.videoeditor.VideoEditorPackage
+
 import android.app.Application
 import com.facebook.react.PackageList
 import com.facebook.react.ReactApplication
@@ -11,6 +13,7 @@ import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 import com.facebook.react.defaults.DefaultReactNativeHost
 import com.facebook.react.flipper.ReactNativeFlipper
 import com.facebook.soloader.SoLoader
+import com.athletespark.BuildConfig
 
 class MainApplication : Application(), ReactApplication {
 

@@ -10,8 +10,7 @@ import {
   Modal,
   ScrollView,
   SafeAreaView,
-  NativeModules,
-  Pressable,
+  PanResponder,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject, getAllProjects } from '../../utils/storage'; 
@@ -35,14 +34,19 @@ const defaultCategories = [
 
 const CUSTOM_CATEGORIES_KEY = 'CUSTOM_CATEGORIES';
 
+const frameWidth = 1080;
+const frameHeight = 1920;
+
 function uriToPath(uri) {
   return uri.startsWith('file://') ? uri.replace('file://', '') : uri;
 }
 
 export default function VideoEditorScreen({ route, navigation }) {
   const { project, onClipUpdate, currentClip: routeCurrentClip} = route.params ?? {};
-
+  
+  const [keyframes, setKeyframes] = useState([]);
   const videoRef = useRef(null);
+  const [markerPos, setMarkerPos] = useState({ x: 0.5, y: 0.5 });
 
   const [clips, setClips] = useState(project?.clips ?? []);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -60,7 +64,7 @@ export default function VideoEditorScreen({ route, navigation }) {
   const [paused, setPaused] = useState(false);
   const [loopTrimPreview, setLoopTrimPreview] = useState(true);
 
-  const [isTrimming, setIsTrimming] = useState(false);
+  //const [isTrimming, setIsTrimming] = useState(false);
   const [isBatchExporting, setIsBatchExporting] = useState(false);
   const [batchExportProgress, setBatchExportProgress] = useState({ current: 0, total: 0 });
 
@@ -308,6 +312,20 @@ export default function VideoEditorScreen({ route, navigation }) {
     );
   }
 
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onPanResponderMove: (_, gesture) => {
+        const x = Math.min(Math.max(gesture.moveX / frameWidth, 0), 1);
+        const y = Math.min(Math.max(gesture.moveY / frameHeight, 0), 1);
+        setMarkerPos({ x, y });
+      },
+      onPanResponderRelease: () => {
+        setKeyframes(prev => [...prev, { time: currentTime, ...markerPos }]);
+      },
+    })
+  ).current;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.container}>
@@ -331,7 +349,25 @@ export default function VideoEditorScreen({ route, navigation }) {
             />
           </View>  */}
 
+          <Text style={[styles.subtitle, { color: colors.textPrimary }]}>TEST 1:</Text>
+          <View style={{ flex: 1 }}>
+            <Video
+              ref={videoRef}
+              source={currentClip?.uri ? { uri: currentClip.uri } : undefined}
+              style={StyleSheet.absoluteFill}
+              onProgress={({ currentTime }) => setCurrentTime(currentTime)}
+            />
+            <View
+              {...panResponder.panHandlers}
+              style={[styles.marker, {
+                left: markerPos.x * frameWidth - 15,
+                top: markerPos.y * frameHeight - 15,
+              }]}
+            />
+          </View>
+
           {/* Video Player */}
+          <Text style={[styles.subtitle, { color: colors.textPrimary }]}>TEST 2:</Text>
           <View style={styles.videoWrapper}>
             <Video
               ref={videoRef}
@@ -372,11 +408,11 @@ export default function VideoEditorScreen({ route, navigation }) {
               thumbTintColor={colors.accent1}          
             />
           )}
-          <TouchableOpacity onPress={() => setLoopTrimPreview(!loopTrimPreview)}>
+          {/* <TouchableOpacity onPress={() => setLoopTrimPreview(!loopTrimPreview)}>
             <Text style={styles.loopToggle}>
               {loopTrimPreview ? 'Loop On' : 'Loop Off'}
             </Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
           {/* Categories */}
           <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Select Category:</Text>
@@ -728,5 +764,14 @@ const styles = StyleSheet.create({
   exportControls: { 
     marginTop: 20, 
     gap: 10 
+  },
+  marker: {
+    position: 'absolute',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: 'red',
+    borderWidth: 2,
+    borderColor: 'white',
   },
 });

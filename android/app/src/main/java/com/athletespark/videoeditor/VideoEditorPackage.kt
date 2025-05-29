@@ -1,4 +1,4 @@
-package com.athletespark
+package com.athletespark.videoeditor
 
 import com.facebook.react.ReactPackage
 import com.facebook.react.bridge.NativeModule

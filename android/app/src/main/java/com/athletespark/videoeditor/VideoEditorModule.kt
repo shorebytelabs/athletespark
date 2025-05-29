@@ -1,4 +1,4 @@
-package com.athletespark
+package com.athletespark.videoeditor
 
 import android.content.Context
 import android.media.*
@@ -18,7 +18,8 @@ import android.provider.MediaStore
 import java.io.FileInputStream
 import java.io.IOException
 import kotlin.concurrent.thread
-
+import com.athletespark.videoeditor.model.FrameCenter
+import com.athletespark.videoeditor.SmartZoomProcessor
 
 data class VideoClip(val path: String, val trimStartUs: Long, val trimEndUs: Long)
 
@@ -43,6 +44,7 @@ class VideoEditorModule(private val reactContext: ReactApplicationContext) :
     when (type) {
       "trim" -> handleTrim(options, promise)
       "merge" -> handleMerge(options, promise)
+      "smartZoom" -> handleSmartZoom(options, promise)
       else -> promise.reject("INVALID_TYPE", "Unsupported process type: $type")
     }
   }
@@ -295,6 +297,38 @@ class VideoEditorModule(private val reactContext: ReactApplicationContext) :
         } catch (e: Exception) {
             Log.e(TAG, "Failed to merge videos: ${e.message}", e)
             onError("Failed to merge videos: ${e.message}")
+        }
+    }
+  }
+
+  private fun handleSmartZoom(options: ReadableMap, promise: Promise) {
+    val inputPath = options.getString("videoUri")!!
+    val outputPath = options.getString("outputUri")!!
+    val keyframesArray = options.getArray("keyframes")!!
+
+    val keyframes = mutableListOf<FrameCenter>()
+    for (i in 0 until keyframesArray.size()) {
+        val frameMap = keyframesArray.getMap(i)
+        val timeMs = frameMap?.getDouble("timeMs")?.toLong() ?: 0L
+        val centerX = frameMap?.getDouble("centerX")?.toFloat() ?: 0f
+        val centerY = frameMap?.getDouble("centerY")?.toFloat() ?: 0f
+        keyframes.add(FrameCenter(timeMs, centerX, centerY))
+    }
+
+    val outputWidth = options.getInt("outputWidth")
+    val outputHeight = options.getInt("outputHeight")
+
+    SmartZoomProcessor(reactApplicationContext).processSmartZoom(
+        inputPath,
+        outputPath,
+        keyframes,
+        outputWidth,
+        outputHeight
+    ) { success ->
+        if (success) {
+            promise.resolve(mapOf("output" to outputPath))
+        } else {
+            promise.reject("PROCESS_FAILED", "Smart zoom processing failed")
         }
     }
   }

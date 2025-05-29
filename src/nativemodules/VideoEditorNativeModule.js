@@ -10,6 +10,8 @@ const VideoEditorNativeModule = {
   exportMergedVideo: (options) => VideoEditor.processVideo(options),
 
   saveToCameraRoll: (videoPath) => VideoEditor.saveToCameraRoll(videoPath),
+
+  smartZoom: (options) => VideoEditor.processVideo(options),
 };
 
 export default VideoEditorNativeModule;

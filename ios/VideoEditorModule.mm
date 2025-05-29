@@ -47,6 +47,8 @@ RCT_EXPORT_METHOD(processVideo:(NSDictionary *)options
     [self handleTrim:options resolver:resolve rejecter:reject];
   } else if ([type isEqualToString:@"merge"] || [type isEqualToString:@"concat"]) {
     [self handleMerge:options resolver:resolve rejecter:reject];
+  } else if ([type isEqualToString:@"smartZoom"]) {
+    [self handleSmartZoom:options resolver:resolve rejecter:reject];  
   } else {
     reject(@"unsupported_type", @"Unknown processing type", nil);
   }
@@ -247,6 +249,114 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
         reject(@"concat_export_unknown", @"Unknown export status", exportSession.error);
         break;
       }
+    }
+  }];
+}
+
+#pragma mark - Smart Zoom Helper (Interpolate CGAffineTransform)
+
+- (CGAffineTransform)transformFrom:(NSDictionary *)start to:(NSDictionary *)end at:(CGFloat)t
+                           frameSize:(CGSize)frameSize {
+  CGFloat sx = [start[@"x"] floatValue];
+  CGFloat sy = [start[@"y"] floatValue];
+  CGFloat ex = [end[@"x"] floatValue];
+  CGFloat ey = [end[@"y"] floatValue];
+
+  CGFloat x = sx + (ex - sx) * t;
+  CGFloat y = sy + (ey - sy) * t;
+
+  CGFloat zoom = 2.0; // 2x zoom
+  CGFloat tx = -x * frameSize.width + frameSize.width / 2.0;
+  CGFloat ty = -y * frameSize.height + frameSize.height / 2.0;
+
+  CGAffineTransform scale = CGAffineTransformMakeScale(zoom, zoom);
+  CGAffineTransform translate = CGAffineTransformMakeTranslation(tx, ty);
+  return CGAffineTransformConcat(scale, translate);
+}
+
+#pragma mark - Smart Zoom Handler
+
+- (void)handleSmartZoom:(NSDictionary *)options
+               resolver:(RCTPromiseResolveBlock)resolve
+               rejecter:(RCTPromiseRejectBlock)reject {
+  NSString *inputPath = options[@"videoUri"];
+  NSString *outputPath = options[@"outputUri"];
+  NSArray *keyframes = options[@"keyframes"];
+  NSDictionary *frameSizeDict = options[@"frameSize"];
+
+  CGSize frameSize = CGSizeMake([frameSizeDict[@"width"] floatValue], [frameSizeDict[@"height"] floatValue]);
+
+  AVAsset *asset = [AVAsset assetWithURL:[NSURL fileURLWithPath:inputPath]];
+  AVAssetTrack *track = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
+
+  AVMutableComposition *composition = [AVMutableComposition composition];
+  AVMutableCompositionTrack *videoTrack = [composition addMutableTrackWithMediaType:AVMediaTypeVideo
+                                                                    preferredTrackID:kCMPersistentTrackID_Invalid];
+  [videoTrack insertTimeRange:CMTimeRangeMake(kCMTimeZero, asset.duration)
+                      ofTrack:track
+                       atTime:kCMTimeZero
+                        error:nil];
+
+  AVMutableVideoComposition *videoComposition = [AVMutableVideoComposition videoComposition];
+  videoComposition.renderSize = frameSize;
+  videoComposition.frameDuration = CMTimeMake(1, 30);
+
+  AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
+  instruction.timeRange = CMTimeRangeMake(kCMTimeZero, asset.duration);
+
+  AVMutableVideoCompositionLayerInstruction *layerInstruction =
+    [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:videoTrack];
+
+  // Interpolate transforms
+  for (NSInteger i = 0; i < keyframes.count - 1; i++) {
+    NSDictionary *start = keyframes[i];
+    NSDictionary *end = keyframes[i + 1];
+
+    CMTime startTime = CMTimeMakeWithSeconds([start[@"time"] floatValue], 600);
+    CMTime endTime = CMTimeMakeWithSeconds([end[@"time"] floatValue], 600);
+    CGFloat duration = CMTimeGetSeconds(CMTimeSubtract(endTime, startTime));
+
+    for (CGFloat t = 0; t < 1.0; t += 0.05) {
+      CMTime time = CMTimeAdd(startTime, CMTimeMakeWithSeconds(t * duration, 600));
+      CGAffineTransform transform = [self transformFrom:start to:end at:t frameSize:frameSize];
+      [layerInstruction setTransformRampFromStartTransform:transform
+                                             toEndTransform:transform
+                                                  timeRange:CMTimeRangeMake(time, videoComposition.frameDuration)];
+    }
+  }
+
+  instruction.layerInstructions = @[layerInstruction];
+  videoComposition.instructions = @[instruction];
+
+  // Optional: Draw red circle overlay
+  CALayer *overlayLayer = [CALayer layer];
+  overlayLayer.frame = CGRectMake(0, 0, 30, 30);
+  overlayLayer.backgroundColor = [UIColor redColor].CGColor;
+  overlayLayer.cornerRadius = 15;
+  overlayLayer.masksToBounds = YES;
+
+  CALayer *parentLayer = [CALayer layer];
+  CALayer *videoLayer = [CALayer layer];
+  parentLayer.frame = CGRectMake(0, 0, frameSize.width, frameSize.height);
+  videoLayer.frame = parentLayer.frame;
+  [parentLayer addSublayer:videoLayer];
+  [parentLayer addSublayer:overlayLayer];
+
+  videoComposition.animationTool = [AVVideoCompositionCoreAnimationTool
+                                     videoCompositionCoreAnimationToolWithPostProcessingAsVideoLayer:videoLayer
+                                     inLayer:parentLayer];
+
+  AVAssetExportSession *exportSession = [[AVAssetExportSession alloc] initWithAsset:composition
+                                                                          presetName:AVAssetExportPresetHighestQuality];
+  exportSession.outputFileType = AVFileTypeMPEG4;
+  exportSession.outputURL = [NSURL fileURLWithPath:outputPath];
+  exportSession.videoComposition = videoComposition;
+
+  [exportSession exportAsynchronouslyWithCompletionHandler:^{
+    if (exportSession.status == AVAssetExportSessionStatusCompleted) {
+      resolve(@{ @"output": outputPath });
+    } else {
+      reject(@"export_error", @"Export failed", exportSession.error);
     }
   }];
 }
