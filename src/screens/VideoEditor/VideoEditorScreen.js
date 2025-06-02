@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject, getAllProjects } from '../../utils/storage'; 
-import interpolateSmartZoom from '../../utils/interpolateSmartZoom'; 
+import { interpolateSmartZoom } from '../../utils/interpolateSmartZoom'; 
 import Video from 'react-native-video';
 import TrimSlider from '../../components/TrimSlider'; 
 import { saveTrimInfo, loadTrimInfo, removeTrimInfo } from '../../utils/trimStorage';
@@ -99,6 +99,7 @@ export default function VideoEditorScreen({ route, navigation }) {
     
   const handleSmartZoom = () => {
     navigation.navigate('SmartZoom', {
+      project: project,
       videoUri: currentClip?.uri,
       trimStart: currentClip?.trimStart ?? 0,
       trimEnd: currentClip?.trimEnd ?? currentClip?.duration,
@@ -331,6 +332,7 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const handleSmartZoom = () => {
     navigation.navigate('SmartZoom', {
+      project: project,
       videoUri: currentClip?.uri,
       trimStart,
       trimEnd,
