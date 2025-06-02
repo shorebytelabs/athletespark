@@ -302,34 +302,41 @@ class VideoEditorModule(private val reactContext: ReactApplicationContext) :
   }
 
   private fun handleSmartZoom(options: ReadableMap, promise: Promise) {
-    val inputPath = options.getString("videoUri")!!
-    val outputPath = options.getString("outputUri")!!
-    val keyframesArray = options.getArray("keyframes")!!
+    try {
+        val inputPath = options.getString("videoUri") ?: return promise.reject("E_MISSING_INPUT", "Missing videoUri")
+        val outputPath = options.getString("outputUri") ?: return promise.reject("E_MISSING_OUTPUT", "Missing outputUri")
+        val keyframesArray = options.getArray("keyframes") ?: return promise.reject("E_MISSING_KEYFRAMES", "Missing keyframes")
 
-    val keyframes = mutableListOf<FrameCenter>()
-    for (i in 0 until keyframesArray.size()) {
-        val frameMap = keyframesArray.getMap(i)
-        val timeMs = frameMap?.getDouble("timeMs")?.toLong() ?: 0L
-        val centerX = frameMap?.getDouble("centerX")?.toFloat() ?: 0f
-        val centerY = frameMap?.getDouble("centerY")?.toFloat() ?: 0f
-        keyframes.add(FrameCenter(timeMs, centerX, centerY))
-    }
-
-    val outputWidth = options.getInt("outputWidth")
-    val outputHeight = options.getInt("outputHeight")
-
-    SmartZoomProcessor(reactApplicationContext).processSmartZoom(
-        inputPath,
-        outputPath,
-        keyframes,
-        outputWidth,
-        outputHeight
-    ) { success ->
-        if (success) {
-            promise.resolve(mapOf("output" to outputPath))
-        } else {
-            promise.reject("PROCESS_FAILED", "Smart zoom processing failed")
+        val keyframes = mutableListOf<FrameCenter>()
+        for (i in 0 until keyframesArray.size()) {
+            val frameMap = keyframesArray.getMap(i)
+            val timeMs = frameMap?.getDouble("timeMs")?.toLong() ?: continue
+            val centerX = frameMap.getDouble("centerX").toFloat()
+            val centerY = frameMap.getDouble("centerY").toFloat()
+            keyframes.add(FrameCenter(timeMs, centerX, centerY))
         }
+
+        val outputWidth = options.getInt("outputWidth")
+        val outputHeight = options.getInt("outputHeight")
+
+        SmartZoomProcessor(reactApplicationContext).processSmartZoom(
+            inputPath,
+            outputPath,
+            keyframes,
+            outputWidth,
+            outputHeight
+        ) { success ->
+            if (success && File(outputPath).exists()) {
+                val result = Arguments.createMap().apply {
+                    putString("output", outputPath)
+                }
+                promise.resolve(result)
+            } else {
+                promise.reject("PROCESS_FAILED", "Smart zoom processing failed or output not found")
+            }
+        }
+    } catch (e: Exception) {
+        promise.reject("PROCESS_EXCEPTION", "Exception during smart zoom processing", e)
     }
   }
 

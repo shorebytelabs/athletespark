@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject, getAllProjects } from '../../utils/storage'; 
+import interpolateSmartZoom from '../../utils/interpolateSmartZoom'; 
 import Video from 'react-native-video';
 import TrimSlider from '../../components/TrimSlider'; 
 import { saveTrimInfo, loadTrimInfo, removeTrimInfo } from '../../utils/trimStorage';
@@ -95,7 +96,18 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   // Save edited clips back to the project when the user leaves the screen
   useEffect(() => {
-    return () => {
+    
+  const handleSmartZoom = () => {
+    navigation.navigate('SmartZoom', {
+      videoUri: currentClip?.uri,
+      trimStart: currentClip?.trimStart ?? 0,
+      trimEnd: currentClip?.trimEnd ?? currentClip?.duration,
+      duration: currentClip?.duration,
+      clipIndex: currentIndex,
+    });
+  };
+
+  return () => {
       saveEditedClipsToProject();
     };
   }, [clips]);
@@ -114,6 +126,22 @@ export default function VideoEditorScreen({ route, navigation }) {
       setPaused(false); // ensure video plays after seek
     }
   }, [trimStart, trimEnd, duration]);
+
+  // Handle updated smart zoom keyframes from SmartZoom screen 
+  useEffect(() => {
+    if (route.params?.updatedSmartZoom) {
+      const { clipIndex, keyframes } = route.params.updatedSmartZoom;
+      const updatedClips = [...clips];
+      updatedClips[clipIndex] = {
+        ...updatedClips[clipIndex],
+        smartZoomKeyframes: keyframes
+      };
+      setClips(updatedClips);
+
+      // Optional: Clear the param to prevent double-applying
+      navigation.setParams({ updatedSmartZoom: null });
+    }
+  }, [route.params?.updatedSmartZoom]);
 
   // Save trim info whenever trim changes
   const handleTrimChange = async (start, end) => {
@@ -146,7 +174,6 @@ export default function VideoEditorScreen({ route, navigation }) {
   
       const updatedProject = { ...project, clips };
       await updateProject(updatedProject);
-      console.log('Project clips saved');
   };
 
   const loadCustomCategories = async () => {
@@ -302,73 +329,42 @@ export default function VideoEditorScreen({ route, navigation }) {
     if (currentIndex > 0) setCurrentIndex(currentIndex - 1);
   };
 
-  if (!currentClip || !currentClip.uri) {
-    return (
-      <SafeAreaView style={styles.safeArea}>
-        <View style={styles.container}>
-          <Text style={styles.title}>No clip selected or clip is missing data.</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
+  const handleSmartZoom = () => {
+    navigation.navigate('SmartZoom', {
+      videoUri: currentClip?.uri,
+      trimStart,
+      trimEnd,
+      duration,
+      clipIndex: currentIndex, 
+    });
+  };
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onPanResponderMove: (_, gesture) => {
-        const x = Math.min(Math.max(gesture.moveX / frameWidth, 0), 1);
-        const y = Math.min(Math.max(gesture.moveY / frameHeight, 0), 1);
-        setMarkerPos({ x, y });
-      },
-      onPanResponderRelease: () => {
-        setKeyframes(prev => [...prev, { time: currentTime, ...markerPos }]);
-      },
-    })
-  ).current;
+  const smartZoomTransform = currentClip.smartZoomKeyframes
+    ? interpolateSmartZoom(currentClip.smartZoomKeyframes, currentTime)
+    : null;
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <View style={styles.container}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          <Text style={styles.title}>
-            {project.name} - Clip {currentIndex + 1} / {clips.length}
-          </Text>
+  const transformStyle = smartZoomTransform
+    ? {
+        transform: [
+          { scale: smartZoomTransform.zoom },
+          { translateX: -smartZoomTransform.x },
+          { translateY: -smartZoomTransform.y },
+        ]
+      }
+    : {};
 
-          {/* Video Player Placeholder */}
-           {/* <View style={styles.videoContainer}>
-            <Video
-              ref={videoRef}
-              source={currentClip?.uri ? { uri: currentClip.uri } : undefined}
-              onLoad={onLoad}
-              onError={onError}
-              onProgress={onProgress}
-              style={styles.video}
-              resizeMode="contain"
-              controls={true}
-              paused={paused}
-            />
-          </View>  */}
+return (
+  <SafeAreaView style={styles.safeArea}>
+    <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.scrollContent}>
+        <Text style={styles.title}>
+          {project.name} - Clip {currentIndex + 1} / {clips.length}
+        </Text>
 
-          <Text style={[styles.subtitle, { color: colors.textPrimary }]}>TEST 1:</Text>
-          <View style={{ flex: 1 }}>
-            <Video
-              ref={videoRef}
-              source={currentClip?.uri ? { uri: currentClip.uri } : undefined}
-              style={StyleSheet.absoluteFill}
-              onProgress={({ currentTime }) => setCurrentTime(currentTime)}
-            />
-            <View
-              {...panResponder.panHandlers}
-              style={[styles.marker, {
-                left: markerPos.x * frameWidth - 15,
-                top: markerPos.y * frameHeight - 15,
-              }]}
-            />
-          </View>
-
-          {/* Video Player */}
-          <Text style={[styles.subtitle, { color: colors.textPrimary }]}>TEST 2:</Text>
-          <View style={styles.videoWrapper}>
+        {/* Video Player */}
+        <Text style={[styles.subtitle, { color: colors.textPrimary }]}>TEST 2:</Text>
+        <View style={styles.videoWrapper}>
+          <View style={[styles.videoZoomContainer, transformStyle]}>
             <Video
               ref={videoRef}
               source={currentClip?.uri ? { uri: currentClip.uri } : undefined}
@@ -380,174 +376,190 @@ export default function VideoEditorScreen({ route, navigation }) {
               controls={false}
               paused={paused}
             />
-            
-            <View style={styles.playbackControls}>
-              <TouchableOpacity onPress={togglePlayPause} style={styles.playPauseButton}>
-                <Text style={styles.playPauseText}>
-                  {paused ? '▶' : '⏸︎'}
+          </View>
+
+          {/* Smart Zoom Button */}
+          <Button
+            title="Smart Zoom Mode"
+            onPress={handleSmartZoom}
+            color={colors.accent1}
+          />
+
+          <View style={styles.playbackControls}>
+            <TouchableOpacity onPress={togglePlayPause} style={styles.playPauseButton}>
+              <Text style={styles.playPauseText}>
+                {paused ? '▶' : '⏸︎'}
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={styles.playbackTime}>
+              {formatTime(currentTime)} / {formatTime(trimEnd)}
+            </Text>
+          </View>
+        </View>
+
+        {/* Trimming Controls */}
+        <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Trim:</Text>
+        {duration > 0 && (
+          <TrimSlider
+            duration={duration}
+            trimStart={trimStart}
+            trimEnd={trimEnd}
+            setPaused={setPaused}
+            onTrimChange={handleTrimChange}
+            minimumTrackTintColor={colors.accent1}
+            maximumTrackTintColor={colors.surface}
+            thumbTintColor={colors.accent1}
+          />
+        )}
+
+        {currentClip.smartZoomKeyframes && (
+          <View style={{ marginVertical: 12 }}>
+            <Button
+              title="Reset Smart Zoom"
+              onPress={() => {
+                const updated = [...clips];
+                updated[currentIndex].smartZoomKeyframes = null;
+                setClips(updated);
+              }}
+            />
+          </View>
+        )}
+
+        {/* Categories */}
+        <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Select Category:</Text>
+        <View style={styles.categoryList}>
+          {allCategories.map((cat) => {
+            const isCustom = customCategories.includes(cat);
+            const isSelected = currentClip.category === cat;
+
+            return (
+              <View key={cat} style={styles.categoryWrapper}>
+                <TouchableOpacity
+                  style={[
+                    styles.categoryButton,
+                    isSelected && styles.categoryButtonSelected,
+                  ]}
+                  onPress={() => assignCategory(cat)}
+                >
+                  <Text
+                    style={[
+                      styles.categoryButtonText,
+                      isSelected && styles.categoryButtonTextSelected,
+                    ]}
+                  >
+                    {cat}
+                  </Text>
+                </TouchableOpacity>
+                {isCustom && (
+                  <TouchableOpacity
+                    onPress={() => deleteCustomCategory(cat)}
+                    style={styles.deleteIconContainer}
+                  >
+                    <Text style={styles.deleteIcon}>×</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            );
+          })}
+        </View>
+
+        {/* Tracking toggle */}
+        <View style={styles.trackingContainer}>
+          <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Athlete Tracking:</Text>
+          <TouchableOpacity
+            onPress={() => setTrackingEnabled(!trackingEnabled)}
+            style={{
+              backgroundColor: trackingEnabled ? colors.danger : colors.accent1,
+              paddingVertical: 8,
+              paddingHorizontal: 16,
+              borderRadius: 8,
+            }}
+          >
+            <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>
+              {trackingEnabled ? 'Disable' : 'Enable'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Export */}
+        <View style={styles.exportControls}>
+          <Button title="Batch Export All Clips" onPress={handleBatchExport} />
+          {isBatchExporting && (
+            <Text>
+              Exporting {batchExportProgress.current}/{batchExportProgress.total}
+            </Text>
+          )}
+        </View>
+
+        <View style={{ height: 80 }} />
+      </ScrollView>
+
+      {/* Fixed footer navigation buttons */}
+      <SafeAreaView style={styles.bottomNavContainer}>
+        <ClipNavigation
+          currentIndex={currentIndex}
+          totalClips={clips.length}
+          onNext={goNext}
+          onPrevious={goPrev}
+        />
+      </SafeAreaView>
+
+      {/* Modal for creating new category */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={{ fontWeight: 'bold', fontSize: 18, marginBottom: 12, color: colors.textPrimary }}>
+              Create New Category
+            </Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Category name"
+              placeholderTextColor={colors.placeholder}
+              value={newCategoryName}
+              onChangeText={setNewCategoryName}
+              autoFocus
+            />
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
+              <TouchableOpacity
+                onPress={() => setModalVisible(false)}
+                style={{
+                  backgroundColor: colors.accent2,
+                  paddingVertical: 10,
+                  paddingHorizontal: 20,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: colors.textPrimary, fontWeight: '600', textAlign: 'center' }}>
+                  Cancel
                 </Text>
               </TouchableOpacity>
 
-              <Text style={styles.playbackTime}>
-                {formatTime(currentTime)} / {formatTime(trimEnd)}
-              </Text>
+              <TouchableOpacity
+                onPress={addCustomCategory}
+                style={{
+                  backgroundColor: colors.accent1,
+                  paddingVertical: 10,
+                  paddingHorizontal: 20,
+                  borderRadius: 8,
+                }}
+              >
+                <Text style={{ color: colors.textPrimary, fontWeight: '600', textAlign: 'center' }}>
+                  Add
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
-
-          {/* Trimming Controls */}
-          <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Trim:</Text>
-          {duration > 0 && (
-            <TrimSlider
-              duration={duration}
-              trimStart={trimStart}
-              trimEnd={trimEnd}
-              setPaused={setPaused}
-              onTrimChange={handleTrimChange}
-              minimumTrackTintColor={colors.accent1}   
-              maximumTrackTintColor={colors.surface}   
-              thumbTintColor={colors.accent1}          
-            />
-          )}
-          {/* <TouchableOpacity onPress={() => setLoopTrimPreview(!loopTrimPreview)}>
-            <Text style={styles.loopToggle}>
-              {loopTrimPreview ? 'Loop On' : 'Loop Off'}
-            </Text>
-          </TouchableOpacity> */}
-
-          {/* Categories */}
-          <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Select Category:</Text>
-          <View style={styles.categoryList}>
-            {allCategories.map((cat) => {
-              const isCustom = customCategories.includes(cat);
-              const isSelected = currentClip.category === cat;
-              return (
-                <View key={cat} style={styles.categoryWrapper}>
-                  <TouchableOpacity
-                    style={[
-                      styles.categoryButton,
-                      isSelected && styles.categoryButtonSelected,
-                    ]}
-                    onPress={() => assignCategory(cat)}
-                  >
-                    <Text
-                      style={[
-                        styles.categoryButtonText,
-                        isSelected && styles.categoryButtonTextSelected,
-                      ]}
-                    >
-                      {cat}
-                    </Text>
-                  </TouchableOpacity>
-                  {isCustom && (
-                    <TouchableOpacity
-                      onPress={() => deleteCustomCategory(cat)}
-                      style={styles.deleteIconContainer}
-                    >
-                      <Text style={styles.deleteIcon}>×</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              );
-            })}
-          </View>
-
-          {/* Tracking toggle */}
-          <View style={styles.trackingContainer}>
-            <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Athlete Tracking:</Text>
-
-            <TouchableOpacity
-              onPress={() => setTrackingEnabled(!trackingEnabled)}
-              style={{
-                backgroundColor: trackingEnabled ? colors.danger : colors.accent1,
-                paddingVertical: 8,
-                paddingHorizontal: 16,
-                borderRadius: 8,
-              }}
-            >
-              <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>
-                {trackingEnabled ? 'Disable' : 'Enable'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Export */}
-          <View style={styles.exportControls}>
-            <Button title="Batch Export All Clips" onPress={handleBatchExport} />
-            {isBatchExporting && (
-              <Text>
-                Exporting {batchExportProgress.current}/{batchExportProgress.total}
-              </Text>
-            )}
-          </View>
-
-          <View style={{ height: 80 }} />
-        </ScrollView>
-
-        {/* Fixed footer navigation buttons */}
-        <SafeAreaView style={styles.bottomNavContainer}>
-          <ClipNavigation
-            currentIndex={currentIndex}
-            totalClips={clips.length}
-            onNext={goNext}
-            onPrevious={goPrev}
-          />
-        </SafeAreaView>
-
-        {/* Modal for creating new category */}
-        <Modal
-          animationType="slide"
-          transparent={true}
-          visible={modalVisible}
-          onRequestClose={() => setModalVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContainer}>
-              <Text style={{ fontWeight: 'bold', fontSize: 18, marginBottom: 12, color: colors.textPrimary }}>
-                Create New Category
-              </Text>
-              <TextInput
-                style={styles.input}
-                placeholder="Category name"
-                placeholderTextColor={colors.placeholder}
-                value={newCategoryName}
-                onChangeText={setNewCategoryName}
-                autoFocus
-              />
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 12 }}>
-                <TouchableOpacity
-                  onPress={() => setModalVisible(false)}
-                  style={{
-                    backgroundColor: colors.accent2,
-                    paddingVertical: 10,
-                    paddingHorizontal: 20,
-                    borderRadius: 8,
-                  }}
-                >
-                  <Text style={{ color: colors.textPrimary, fontWeight: '600', textAlign: 'center' }}>
-                    Cancel
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  onPress={addCustomCategory}
-                  style={{
-                    backgroundColor: colors.accent1,
-                    paddingVertical: 10,
-                    paddingHorizontal: 20,
-                    borderRadius: 8,
-                  }}
-                >
-                  <Text style={{ color: colors.textPrimary, fontWeight: '600', textAlign: 'center' }}>
-                    Add
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
-      </View>
-    </SafeAreaView>
-  );
+        </View>
+      </Modal>
+    </View>
+  </SafeAreaView>
+);
 }
 
 const styles = StyleSheet.create({
@@ -730,8 +742,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.overlay,
     paddingVertical: 2,
     paddingHorizontal: 12,
-    borderBottomLeftRadius: 12,
-    borderBottomRightRadius: 12,
+    // borderBottomLeftRadius: 12,
+    // borderBottomRightRadius: 12,
   },
   playPauseButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.125)', // semi-transparent white (like '#ffffff20')
@@ -773,5 +785,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'red',
     borderWidth: 2,
     borderColor: 'white',
+  },
+  videoZoomContainer: {
+    flex: 1,
+    overflow: 'hidden',
   },
 });

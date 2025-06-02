@@ -128,6 +128,15 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
     return;
   }
 
+  NSFileManager *fileManager = [NSFileManager defaultManager];
+  if ([fileManager fileExistsAtPath:outputPath]) {
+    NSError *removeError = nil;
+    [fileManager removeItemAtPath:outputPath error:&removeError];
+    if (removeError) {
+      NSLog(@"⚠️ Failed to delete existing file at outputPath: %@", removeError);
+    }
+  }
+
   exportSession.outputURL = outputURL;
   exportSession.outputFileType = AVFileTypeQuickTimeMovie;
   exportSession.timeRange = CMTimeRangeFromTimeToTime(startTime, endTime);
@@ -222,6 +231,16 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
   [[NSFileManager defaultManager] removeItemAtURL:outputURL error:nil];
 
   AVAssetExportSession *exportSession = [[AVAssetExportSession alloc] initWithAsset:composition presetName:AVAssetExportPresetHighestQuality];
+  
+  NSFileManager *fileManager = [NSFileManager defaultManager];
+  if ([fileManager fileExistsAtPath:outputPath]) {
+    NSError *removeError = nil;
+    [fileManager removeItemAtPath:outputPath error:&removeError];
+    if (removeError) {
+      NSLog(@"⚠️ Failed to delete existing file at outputPath: %@", removeError);
+    }
+  }
+
   exportSession.outputURL = outputURL;
   exportSession.outputFileType = AVFileTypeQuickTimeMovie;
 
@@ -284,22 +303,53 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
   NSArray *keyframes = options[@"keyframes"];
   NSDictionary *frameSizeDict = options[@"frameSize"];
 
-  CGSize frameSize = CGSizeMake([frameSizeDict[@"width"] floatValue], [frameSizeDict[@"height"] floatValue]);
+  NSLog(@"🎬 Smart Zoom input path: %@", inputPath);
+  NSLog(@"📤 Smart Zoom output path: %@", outputPath);
+  NSLog(@"📌 Keyframes: %@", keyframes);
+  NSLog(@"📐 Frame size: %@", frameSizeDict);
+
+  if (!inputPath || !outputPath || keyframes.count < 2) {
+    reject(@"invalid_input", @"Missing input path, output path, or keyframes", nil);
+    return;
+  }
 
   AVAsset *asset = [AVAsset assetWithURL:[NSURL fileURLWithPath:inputPath]];
   AVAssetTrack *track = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
+  if (!track) {
+    reject(@"no_track", @"No video track found", nil);
+    return;
+  }
+
+  CGSize frameSize = CGSizeZero;
+  if (frameSizeDict[@"width"] && frameSizeDict[@"height"]) {
+    CGFloat width = [frameSizeDict[@"width"] floatValue];
+    CGFloat height = [frameSizeDict[@"height"] floatValue];
+    if (width > 0 && height > 0) {
+      frameSize = CGSizeMake(width, height);
+    }
+  }
+  if (frameSize.width <= 0 || frameSize.height <= 0) {
+    frameSize = track.naturalSize;
+    NSLog(@"⚠️ Invalid or missing frameSize — fallback to natural size: %.1fx%.1f", frameSize.width, frameSize.height);
+  }
 
   AVMutableComposition *composition = [AVMutableComposition composition];
   AVMutableCompositionTrack *videoTrack = [composition addMutableTrackWithMediaType:AVMediaTypeVideo
                                                                     preferredTrackID:kCMPersistentTrackID_Invalid];
+
+  NSError *insertError = nil;
   [videoTrack insertTimeRange:CMTimeRangeMake(kCMTimeZero, asset.duration)
                       ofTrack:track
                        atTime:kCMTimeZero
-                        error:nil];
+                        error:&insertError];
+  if (insertError) {
+    reject(@"insert_error", @"Failed to insert track", insertError);
+    return;
+  }
 
   AVMutableVideoComposition *videoComposition = [AVMutableVideoComposition videoComposition];
   videoComposition.renderSize = frameSize;
-  videoComposition.frameDuration = CMTimeMake(1, 30);
+  videoComposition.frameDuration = CMTimeMake(1, 30); // 30fps
 
   AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
   instruction.timeRange = CMTimeRangeMake(kCMTimeZero, asset.duration);
@@ -307,56 +357,65 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
   AVMutableVideoCompositionLayerInstruction *layerInstruction =
     [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:videoTrack];
 
-  // Interpolate transforms
-  for (NSInteger i = 0; i < keyframes.count - 1; i++) {
-    NSDictionary *start = keyframes[i];
-    NSDictionary *end = keyframes[i + 1];
+  // Sort keyframes by time to ensure proper interpolation
+  NSArray *sortedKeyframes = [keyframes sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
+    float t1 = [a[@"time"] floatValue];
+    float t2 = [b[@"time"] floatValue];
+    return t1 < t2 ? NSOrderedAscending : NSOrderedDescending;
+  }];
+
+  // Interpolated transform ramping
+  for (NSInteger i = 0; i < sortedKeyframes.count - 1; i++) {
+    NSDictionary *start = sortedKeyframes[i];
+    NSDictionary *end = sortedKeyframes[i + 1];
+
+    CGFloat startX = [start[@"x"] floatValue];
+    CGFloat startY = [start[@"y"] floatValue];
+    CGFloat endX = [end[@"x"] floatValue];
+    CGFloat endY = [end[@"y"] floatValue];
 
     CMTime startTime = CMTimeMakeWithSeconds([start[@"time"] floatValue], 600);
     CMTime endTime = CMTimeMakeWithSeconds([end[@"time"] floatValue], 600);
-    CGFloat duration = CMTimeGetSeconds(CMTimeSubtract(endTime, startTime));
 
-    for (CGFloat t = 0; t < 1.0; t += 0.05) {
-      CMTime time = CMTimeAdd(startTime, CMTimeMakeWithSeconds(t * duration, 600));
-      CGAffineTransform transform = [self transformFrom:start to:end at:t frameSize:frameSize];
-      [layerInstruction setTransformRampFromStartTransform:transform
-                                             toEndTransform:transform
-                                                  timeRange:CMTimeRangeMake(time, videoComposition.frameDuration)];
+    if (CMTIME_COMPARE_INLINE(endTime, <=, startTime)) {
+      NSLog(@"⚠️ Skipping invalid keyframe pair: start=%f, end=%f", CMTimeGetSeconds(startTime), CMTimeGetSeconds(endTime));
+      continue;
     }
+
+    CGAffineTransform startTransform = CGAffineTransformMakeTranslation(-startX + frameSize.width / 2, -startY + frameSize.height / 2);
+    CGAffineTransform endTransform = CGAffineTransformMakeTranslation(-endX + frameSize.width / 2, -endY + frameSize.height / 2);
+
+    [layerInstruction setTransformRampFromStartTransform:startTransform
+                                         toEndTransform:endTransform
+                                              timeRange:CMTimeRangeMake(startTime, CMTimeSubtract(endTime, startTime))];
   }
 
   instruction.layerInstructions = @[layerInstruction];
   videoComposition.instructions = @[instruction];
 
-  // Optional: Draw red circle overlay
-  CALayer *overlayLayer = [CALayer layer];
-  overlayLayer.frame = CGRectMake(0, 0, 30, 30);
-  overlayLayer.backgroundColor = [UIColor redColor].CGColor;
-  overlayLayer.cornerRadius = 15;
-  overlayLayer.masksToBounds = YES;
+  AVAssetExportSession *exportSession = [AVAssetExportSession exportSessionWithAsset:composition
+                                                                           presetName:AVAssetExportPresetHighestQuality];
 
-  CALayer *parentLayer = [CALayer layer];
-  CALayer *videoLayer = [CALayer layer];
-  parentLayer.frame = CGRectMake(0, 0, frameSize.width, frameSize.height);
-  videoLayer.frame = parentLayer.frame;
-  [parentLayer addSublayer:videoLayer];
-  [parentLayer addSublayer:overlayLayer];
+  // Ensure file overwrite
+  NSFileManager *fileManager = [NSFileManager defaultManager];
+  if ([fileManager fileExistsAtPath:outputPath]) {
+    NSError *removeError = nil;
+    [fileManager removeItemAtPath:outputPath error:&removeError];
+    if (removeError) {
+      NSLog(@"⚠️ Failed to delete existing output file: %@", removeError);
+    }
+  }
 
-  videoComposition.animationTool = [AVVideoCompositionCoreAnimationTool
-                                     videoCompositionCoreAnimationToolWithPostProcessingAsVideoLayer:videoLayer
-                                     inLayer:parentLayer];
-
-  AVAssetExportSession *exportSession = [[AVAssetExportSession alloc] initWithAsset:composition
-                                                                          presetName:AVAssetExportPresetHighestQuality];
-  exportSession.outputFileType = AVFileTypeMPEG4;
   exportSession.outputURL = [NSURL fileURLWithPath:outputPath];
+  exportSession.outputFileType = AVFileTypeQuickTimeMovie;
   exportSession.videoComposition = videoComposition;
 
   [exportSession exportAsynchronouslyWithCompletionHandler:^{
     if (exportSession.status == AVAssetExportSessionStatusCompleted) {
-      resolve(@{ @"output": outputPath });
+      resolve(outputPath);
     } else {
-      reject(@"export_error", @"Export failed", exportSession.error);
+      NSString *details = [NSString stringWithFormat:@"Status: %ld, Error: %@", (long)exportSession.status, exportSession.error.localizedDescription];
+      reject(@"export_failed", details, exportSession.error);
     }
   }];
 }

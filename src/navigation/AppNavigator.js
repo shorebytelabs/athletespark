@@ -9,6 +9,7 @@ import AthleteProfilesScreen from '../screens/AthleteProfiles/AthleteProfilesScr
 import SettingsScreen from '../screens/Settings/SettingsScreen';
 import CreateProjectScreen from '../screens/CreateProject/CreateProjectScreen';
 import VideoEditorScreen from '../screens/VideoEditor/VideoEditorScreen';
+import SmartZoomScreen from '../screens/VideoEditor/SmartZoomScreen';
 
 import { colors, navigationDarkTheme } from '../theme/theme';
 
@@ -96,6 +97,11 @@ export default function AppNavigator() {
           options={{
             title: 'Edit Project',
           }}
+        />
+        <Stack.Screen
+          name="SmartZoom"
+          component={SmartZoomScreen}
+          options={{ title: 'Smart Zoom' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

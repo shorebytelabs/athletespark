@@ -1,3 +1,4 @@
+import 'react-native-reanimated';
 import React, { useEffect } from 'react';
 import { Platform, PermissionsAndroid, Alert } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
