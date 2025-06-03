@@ -81,9 +81,16 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
   };
 
   const isPreview = phase === 'preview';
-  const current = isPreview
-    ? interpolateKeyframes(keyframes, playbackTime)
-    : keyframes[currentKeyframeIndex];
+  const [interpolatedZoom, setInterpolatedZoom] = useState({ x: 0, y: 0, scale: 1 });
+
+  useEffect(() => {
+    if (isPreview) {
+      const value = interpolateKeyframes(keyframes, playbackTime);
+      setInterpolatedZoom(value);
+    }
+  }, [keyframes, playbackTime, isPreview]);
+
+  const current = isPreview ? interpolatedZoom : keyframes[currentKeyframeIndex];
 
   return (
     <View style={styles.container}>
@@ -108,6 +115,8 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
             onEnd={() => setPaused(true)}
             trimStart={trimStart}
             trimEnd={trimEnd}
+            keyframes={keyframes}
+            playbackTime={playbackTime}
           />
         )}
       </View>

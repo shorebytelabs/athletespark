@@ -43,9 +43,6 @@ export const saveToPersistentStorage = async (originalPath, project) => {
   const newFileName = generateProjectFileName(normalizedSrc, project);
   const destPath = `${VIDEO_DIR}/${newFileName}`;
 
-  console.log('Copying from:', originalPath);
-  console.log('Copying to:', destPath);
-
   try {
     await RNFS.copyFile(normalizedSrc, destPath);
     return `file://${destPath}`;

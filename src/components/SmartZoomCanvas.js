@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
@@ -6,9 +6,9 @@ import Animated, {
   useSharedValue,
   useDerivedValue,
   runOnJS,
-  withTiming,
 } from 'react-native-reanimated';
 import Video from 'react-native-video';
+import interpolateKeyframes from '../utils/interpolateKeyframes';
 
 const SmartZoomCanvas = ({
   clip,
@@ -24,9 +24,9 @@ const SmartZoomCanvas = ({
   onEnd,
   trimStart,
   trimEnd,
+  playbackTime,
+  keyframes,
 }) => {
-
-  // Shared values for gesture transforms
   const scale = useSharedValue(zoom);
   const translateX = useSharedValue(x);
   const translateY = useSharedValue(y);
@@ -36,15 +36,13 @@ const SmartZoomCanvas = ({
     if (!videoRef.current) return;
 
     if (isPreview) {
-      // For full preview playback, start at trimStart
       videoRef.current.seek(trimStart ?? 0, 0);
     } else if (clip.timestamp != null) {
-      // For static keyframe thumbnails, seek to specific timestamp
       videoRef.current.seek(clip.timestamp, 0);
     }
   };
 
-  // Gesture for pan
+  // Gestures
   const panGesture = Gesture.Pan().onChange((e) => {
     translateX.value += e.changeX / videoLayout.frameWidth;
     translateY.value += e.changeY / videoLayout.frameHeight;
@@ -55,7 +53,6 @@ const SmartZoomCanvas = ({
     });
   });
 
-  // Gesture for pinch (zoom)
   const pinchGesture = Gesture.Pinch().onChange((e) => {
     scale.value *= e.scale;
     runOnJS(onChange)({
@@ -66,6 +63,15 @@ const SmartZoomCanvas = ({
   });
 
   const composed = Gesture.Simultaneous(panGesture, pinchGesture);
+
+  // 🔄 Frame-synced zoom and pan interpolation
+  useEffect(() => {
+    if (isPreview) {
+      scale.value = zoom;
+      translateX.value = x;
+      translateY.value = y;
+    }
+  }, [x, y, zoom, isPreview]);
 
   const animatedStyle = useAnimatedStyle(() => {
     const translateXPx = translateX.value * videoLayout.frameWidth;
@@ -79,11 +85,12 @@ const SmartZoomCanvas = ({
     };
   });
 
+  // Set initial shared values when not previewing
   useEffect(() => {
-    if (isPreview) {
-      translateX.value = withTiming(x);
-      translateY.value = withTiming(y);
-      scale.value = withTiming(zoom);
+    if (!isPreview) {
+      scale.value = zoom;
+      translateX.value = x;
+      translateY.value = y;
     }
   }, [x, y, zoom, isPreview]);
 
@@ -92,9 +99,9 @@ const SmartZoomCanvas = ({
       <Animated.View style={[styles.frame, { width: videoLayout.frameWidth, height: videoLayout.frameHeight }]}>
         <Animated.View style={[StyleSheet.absoluteFill, animatedStyle]}>
           <Video
-            key={!isPreview ? `${clip.uri}_${clip.timestamp}` : undefined} 
+            key={!isPreview ? `${clip.uri}_${clip.timestamp}` : undefined}
             ref={videoRef}
-            onEnd={onEnd} 
+            onEnd={onEnd}
             source={{ uri: clip.uri }}
             style={styles.video}
             paused={paused}
