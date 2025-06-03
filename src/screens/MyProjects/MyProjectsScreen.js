@@ -10,7 +10,7 @@ import {
   TouchableOpacity,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getAllProjects, updateProject, saveProject } from '../../utils/storage';
+import { getAllProjects, updateProject, saveProject } from '../../utils/projectStorage';
 import { colors } from '../../theme/theme';
 
 export default function MyProjectsScreen({ navigation }) {

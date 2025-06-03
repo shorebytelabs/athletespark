@@ -22,6 +22,8 @@ const SmartZoomCanvas = ({
   isPreview,
   videoRef,
   onEnd,
+  trimStart,
+  trimEnd,
 }) => {
 
   // Shared values for gesture transforms
@@ -31,7 +33,13 @@ const SmartZoomCanvas = ({
 
   // Seek to correct timestamp once video is loaded
   const onVideoLoad = () => {
-    if (videoRef.current && !isPreview && clip.timestamp != null) {
+    if (!videoRef.current) return;
+
+    if (isPreview) {
+      // For full preview playback, start at trimStart
+      videoRef.current.seek(trimStart ?? 0, 0);
+    } else if (clip.timestamp != null) {
+      // For static keyframe thumbnails, seek to specific timestamp
       videoRef.current.seek(clip.timestamp, 0);
     }
   };
@@ -93,8 +101,12 @@ const SmartZoomCanvas = ({
             resizeMode="contain"
             onLoad={onVideoLoad}
             onProgress={({ currentTime }) => {
-              if (isPreview && setPlaybackTime) {
-                runOnJS(setPlaybackTime)(currentTime);
+              if (isPreview) {
+                if (currentTime >= trimEnd) {
+                  videoRef.current?.seek(trimStart);
+                } else {
+                  runOnJS(setPlaybackTime)(currentTime);
+                }
               }
             }}
           />

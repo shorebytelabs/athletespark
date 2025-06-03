@@ -105,7 +105,9 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
             setPlaybackTime={setPlaybackTime}
             isPreview={isPreview}
             videoRef={videoRef}
-            onEnd={() => setPaused(true)} 
+            onEnd={() => setPaused(true)}
+            trimStart={trimStart}
+            trimEnd={trimEnd}
           />
         )}
       </View>

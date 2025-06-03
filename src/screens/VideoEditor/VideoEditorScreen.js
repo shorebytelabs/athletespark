@@ -10,13 +10,15 @@ import {
   Modal,
   ScrollView,
   SafeAreaView,
+  InteractionManager,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { updateProject, getAllProjects } from '../../utils/storage'; 
+import { updateProject, getAllProjects } from '../../utils/projectStorage'; 
 import { interpolateSmartZoom } from '../../utils/interpolateSmartZoom'; 
 import Video from 'react-native-video';
 import TrimSlider from '../../components/TrimSlider'; 
 import { saveTrimInfo, loadTrimInfo } from '../../utils/trimStorage';
+import { saveToPersistentStorage } from '../../utils/fileStorage';
 import { colors } from '../../theme/theme';
 import ClipNavigation from '../../navigation/ClipNavigation';
 import RNFS from 'react-native-fs';
@@ -70,6 +72,37 @@ export default function VideoEditorScreen({ route, navigation }) {
   const projectId = project?.id;
   const clipId = currentClip?.id || currentClip?.uri;
   const hasSmartZoom = clips[currentIndex]?.smartZoomKeyframes != null;
+  const [safeUri, setSafeUri] = useState(null);
+
+  // Check if clip file exists on disk and persist it if needed
+  useEffect(() => {
+    const checkClipFile = async () => {
+      if (!currentClip?.uri) return;
+
+      const path = currentClip.uri.replace('file://', '');
+      const exists = await RNFS.exists(path);
+
+      if (!exists) {
+        console.warn('Clip file missing on disk:', currentClip.uri);
+        // Optional: alert the user or remove the broken clip from UI
+        return;
+      }
+
+      // Try to persist it if needed
+      try {
+        const storedUri = await saveToPersistentStorage(currentClip.uri, project);
+        if (storedUri !== currentClip.uri) {
+          const updated = [...clips];
+          updated[currentIndex].uri = storedUri;
+          setClips(updated);
+        }
+      } catch (err) {
+        console.warn('Could not persist clip URI:', err.message);
+      }
+    };
+
+    checkClipFile();
+  }, [currentClip?.uri]);
 
   // Load trim info when project or clip changes
   useEffect(() => {
@@ -92,25 +125,6 @@ export default function VideoEditorScreen({ route, navigation }) {
   useEffect(() => {
     loadCustomCategories();
   }, []);
-
-  // Save edited clips back to the project when the user leaves the screen
-  useEffect(() => {
-    
-  const handleSmartZoom = () => {
-    navigation.navigate('SmartZoom', {
-      project: project,
-      videoUri: currentClip?.uri,
-      trimStart: currentClip?.trimStart ?? 0,
-      trimEnd: currentClip?.trimEnd ?? currentClip?.duration,
-      duration: currentClip?.duration,
-      clipIndex: currentIndex,
-    });
-  };
-
-  return () => {
-      saveEditedClipsToProject();
-    };
-  }, [clips]);
 
   // Seek to trimStart when it changes
   useEffect(() => {
@@ -143,37 +157,52 @@ export default function VideoEditorScreen({ route, navigation }) {
     }
   }, [route.params?.updatedSmartZoom]);
 
+  // Ensure currentClip is set from route params if available
+  useEffect(() => {
+    let isActive = true;
+
+    InteractionManager.runAfterInteractions(() => {
+      if (isActive) {
+        setSafeUri(currentClip?.uri);
+      }
+    });
+
+    return () => {
+      isActive = false;
+      setSafeUri(null); // Clear URI on unmount or before update
+    };
+  }, [currentClip?.uri]);
+
   // Save trim info whenever trim changes
   const handleTrimChange = async (start, end) => {
-  setTrimStart(start);
-  setTrimEnd(end);
-  setPaused(true);
+    setTrimStart(start);
+    setTrimEnd(end);
+    setPaused(true);
 
-  if (videoRef.current) videoRef.current.seek(start);
+    if (videoRef.current) videoRef.current.seek(start);
 
-  // Save locally in clips array
-  const updatedClips = [...clips];
-  updatedClips[currentIndex] = {
-    ...updatedClips[currentIndex],
-    trimStart: start,
-    trimEnd: end,
-  };
-  setClips(updatedClips);
+    // Save locally in clips array
+    const updatedClips = [...clips];
+    updatedClips[currentIndex] = {
+      ...updatedClips[currentIndex],
+      trimStart: start,
+      trimEnd: end,
+    };
+    setClips(updatedClips);
 
-  // Persist if needed
-  if (projectId && clipId) {
-    try {
-      await saveTrimInfo(projectId, clipId, { startTime: start, endTime: end });
-    } catch (e) {
-      console.error('Failed to save trim info:', e);
+    // Persist if needed
+    if (projectId && clipId) {
+      try {
+        await saveTrimInfo(projectId, clipId, { startTime: start, endTime: end });
+      } catch (e) {
+        console.error('Failed to save trim info:', e);
+      }
     }
-  }
   };
 
   const saveEditedClipsToProject = async () => {
-  
-      const updatedProject = { ...project, clips };
-      await updateProject(updatedProject);
+    const updatedProject = { ...project, clips: updatedClips };
+    await updateProject(updatedProject);
   };
 
   const loadCustomCategories = async () => {
@@ -339,7 +368,6 @@ export default function VideoEditorScreen({ route, navigation }) {
       clipIndex: currentIndex, 
     });
   };
-
   const smartZoomTransform = currentClip.smartZoomKeyframes
     ? interpolateSmartZoom(currentClip.smartZoomKeyframes, currentTime)
     : null;
@@ -376,17 +404,19 @@ return (
         <Text style={[styles.subtitle]}>TEST 2:</Text>
         <View style={styles.videoWrapper}>
           <View style={[styles.videoZoomContainer, transformStyle]}>
-            <Video
-              ref={videoRef}
-              source={currentClip?.uri ? { uri: currentClip.uri } : undefined}
-              onLoad={onLoad}
-              onError={onError}
-              onProgress={onProgress}
-              style={styles.video}
-              resizeMode="contain"
-              controls={false}
-              paused={paused}
-            />
+            {safeUri && (
+              <Video
+                ref={videoRef}
+                source={{uri: safeUri}}
+                onLoad={onLoad}
+                onError={onError}
+                onProgress={onProgress}
+                style={styles.video}
+                resizeMode="contain"
+                controls={false}
+                paused={paused}
+              />
+              )}
           </View>
 
           <View style={styles.playbackControls}>

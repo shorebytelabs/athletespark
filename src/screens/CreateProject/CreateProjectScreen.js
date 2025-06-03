@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, Alert, StyleSheet, ActivityIndicator } from 'react-native';
 import { launchImageLibrary } from 'react-native-image-picker';
-import { saveProject } from '../../utils/storage';
+import { saveProject } from '../../utils/projectStorage';
+import { saveToPersistentStorage } from '../../utils/fileStorage';
 import { colors } from '../../theme/theme';
 
 const MAX_CLIPS = 5;
@@ -9,11 +10,12 @@ const MAX_DURATION = 20; // seconds
 
 export default function CreateProjectScreen({ navigation }) {
   const [clips, setClips] = useState([]);
-  const [picking, setPicking] = useState(true); // start picking immediately
+  const [picking, setPicking] = useState(true);
 
   useEffect(() => {
-    // Open video picker immediately on mount
-    if (picking) {
+    if (!picking) return;
+
+    const pickVideos = async () => {
       launchImageLibrary(
         {
           mediaType: 'video',
@@ -23,17 +25,13 @@ export default function CreateProjectScreen({ navigation }) {
         async (response) => {
           setPicking(false);
 
-          if (response.didCancel) {
+          if (response.didCancel || !response.assets || response.assets.length === 0) {
             navigation.goBack();
             return;
           }
+
           if (response.errorCode) {
             Alert.alert('Error', response.errorMessage);
-            navigation.goBack();
-            return;
-          }
-          if (!response.assets || response.assets.length === 0) {
-            Alert.alert('No videos selected.');
             navigation.goBack();
             return;
           }
@@ -52,43 +50,59 @@ export default function CreateProjectScreen({ navigation }) {
             return;
           }
 
-          setClips(validClips);
-
-          // Create project
+          const projectId = Date.now().toString();
           const projectName = `Project_${new Date().toISOString()}`;
-          const newProject = {
-            id: Date.now().toString(),
-            name: projectName,
-            clips: validClips,
-            createdAt: new Date().toISOString(),
-          };
 
           try {
-            await saveProject(newProject);
-            Alert.alert(
-              'Project Created!',
-              `Name: ${projectName}`,
-              [
-                {
-                  text: 'OK',
-                  onPress: () => {
-                    navigation.replace('VideoEditor', {
-                      projectId: newProject.id,
-                      projectName,
-                      project: newProject,
-                    });
-                  },
-                },
-              ],
-              { cancelable: false }
+            const persistedClips = await Promise.all(
+              validClips.map(async (clip) => {
+                try {
+                  const persistedUri = await saveToPersistentStorage(clip.uri, {
+                    id: projectId,
+                    name: projectName,
+                  });
+                  return { ...clip, uri: persistedUri };
+                } catch (err) {
+                  console.warn('Failed to persist clip:', clip.uri, err);
+                  return null;
+                }
+              })
             );
+
+            const filteredClips = persistedClips.filter(Boolean);
+            setClips(filteredClips);
+
+            const newProject = {
+              id: projectId,
+              name: projectName,
+              clips: filteredClips,
+              createdAt: new Date().toISOString(),
+            };
+
+            await saveProject(newProject);
+
+            Alert.alert('Project Created!', `Name: ${projectName}`, [
+              {
+                text: 'OK',
+                onPress: () => {
+                  navigation.replace('VideoEditor', {
+                    projectId: newProject.id,
+                    projectName,
+                    project: newProject,
+                  });
+                },
+              },
+            ]);
           } catch (err) {
-            Alert.alert('Error', 'Failed to save project.');
-            console.error(err);
+            Alert.alert('Error', 'Failed to create project.');
+            console.error('Project creation failed:', err);
+            navigation.goBack();
           }
         }
       );
-    }
+    };
+
+    pickVideos();
   }, [picking, navigation]);
 
   if (picking) {
