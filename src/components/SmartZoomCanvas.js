@@ -20,8 +20,9 @@ const SmartZoomCanvas = ({
   paused,
   setPlaybackTime,
   isPreview,
+  videoRef,
+  onEnd,
 }) => {
-  const videoRef = useRef(null);
 
   // Shared values for gesture transforms
   const scale = useSharedValue(zoom);
@@ -85,6 +86,7 @@ const SmartZoomCanvas = ({
           <Video
             key={!isPreview ? `${clip.uri}_${clip.timestamp}` : undefined} 
             ref={videoRef}
+            onEnd={onEnd} 
             source={{ uri: clip.uri }}
             style={styles.video}
             paused={paused}

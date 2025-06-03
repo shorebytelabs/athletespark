@@ -104,6 +104,8 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
             paused={paused}
             setPlaybackTime={setPlaybackTime}
             isPreview={isPreview}
+            videoRef={videoRef}
+            onEnd={() => setPaused(true)} 
           />
         )}
       </View>
@@ -134,7 +136,15 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
 
       {isPreview && (
         <View style={styles.controls}>
-          <Button title={paused ? 'Play ▶️' : 'Pause ⏸'} onPress={() => setPaused((p) => !p)} />
+          <Button
+            title={paused ? 'Play ▶️' : 'Pause ⏸'}
+            onPress={() => {
+              if (paused && videoRef.current) {
+                videoRef.current.seek(0);
+              }
+              setPaused((p) => !p);
+            }}
+          />
           <Button title="Finish Smart Zoom" onPress={handleFinish} />
         </View>
       )}
