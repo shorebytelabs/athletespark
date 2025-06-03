@@ -69,7 +69,7 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const projectId = project?.id;
   const clipId = currentClip?.id || currentClip?.uri;
-  const [smartZoomEnabled, setSmartZoomEnabled] = useState(false);
+  const hasSmartZoom = clips[currentIndex]?.smartZoomKeyframes != null;
 
   // Load trim info when project or clip changes
   useEffect(() => {
@@ -354,8 +354,11 @@ export default function VideoEditorScreen({ route, navigation }) {
       }
     : {};
 
-  const handleDisableSmartZoom = () => {
-    // Reset Smart Zoom data for current clip
+  const handleSmartZoomEdit = () => {
+    handleSmartZoom();
+  };
+
+  const handleSmartZoomReset = () => {
     const updated = [...clips];
     updated[currentIndex].smartZoomKeyframes = null;
     setClips(updated);
@@ -370,7 +373,7 @@ return (
         </Text>
 
         {/* Video Player */}
-        <Text style={[styles.subtitle, { color: colors.textPrimary }]}>TEST 2:</Text>
+        <Text style={[styles.subtitle]}>TEST 2:</Text>
         <View style={styles.videoWrapper}>
           <View style={[styles.videoZoomContainer, transformStyle]}>
             <Video
@@ -400,7 +403,9 @@ return (
         </View>
 
         {/* Trimming Controls */}
-        <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Trim:</Text>
+        <View style={styles.toggleRow}>
+          <Text style={[styles.subtitle]}>Trim:</Text>
+        </View>
         {duration > 0 && (
           <TrimSlider
             duration={duration}
@@ -415,7 +420,9 @@ return (
         )}
 
         {/* Categories */}
-        <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Select Category:</Text>
+        <View style={styles.toggleRow}>
+          <Text style={[styles.subtitle, ]}>Select Category:</Text>
+        </View>
         <View style={styles.categoryList}>
           {allCategories.map((cat) => {
             const isCustom = customCategories.includes(cat);
@@ -452,44 +459,45 @@ return (
           })}
         </View>
 
-        {/* Smart Zoom toggle */}
+        {/* Smart Zoom Control */}
         <View style={styles.toggleRow}>
-          <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Smart Zoom:</Text>
-          <TouchableOpacity
-            onPress={() => {
-              if (smartZoomEnabled) {
-                handleDisableSmartZoom(); // reset Smart Zoom
-              } else {
-                handleSmartZoom(); // enter Smart Zoom editor
-              }
-              setSmartZoomEnabled(!smartZoomEnabled);
-            }}
-            style={{
-              backgroundColor: smartZoomEnabled ? colors.danger : colors.accent1,
-              paddingVertical: 8,
-              paddingHorizontal: 16,
-              borderRadius: 8,
-            }}
-          >
-            <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>
-              {smartZoomEnabled ? 'Disable' : 'Enable'}
-            </Text>
-          </TouchableOpacity>
+          <Text style={styles.subtitle}>Smart Zoom:</Text>
+          {!hasSmartZoom ? (
+            <TouchableOpacity
+              onPress={handleSmartZoom}
+              style={styles.primaryButton}
+            >
+              <Text style={styles.buttonText}>Set Up</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.actionGroup}>
+              <TouchableOpacity
+                onPress={handleSmartZoomEdit}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.buttonText}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSmartZoomReset}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.buttonText}>Reset</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
-        {/* Tracking toggle */}
+        {/* Athlete Tracking Control */}
         <View style={styles.toggleRow}>
-          <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Athlete Tracking:</Text>
+          <Text style={styles.subtitle}>Athlete Tracking:</Text>
           <TouchableOpacity
             onPress={() => setTrackingEnabled(!trackingEnabled)}
-            style={{
-              backgroundColor: trackingEnabled ? colors.danger : colors.accent1,
-              paddingVertical: 8,
-              paddingHorizontal: 16,
-              borderRadius: 8,
-            }}
+            style={[
+              styles.toggleButton,
+              { backgroundColor: trackingEnabled ? colors.danger : colors.accent1 },
+            ]}
           >
-            <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>
+            <Text style={styles.buttonText}>
               {trackingEnabled ? 'Disable' : 'Enable'}
             </Text>
           </TouchableOpacity>
@@ -614,7 +622,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 4,
     fontWeight: 'bold',
-    color: colors.textSecondary,
+    color: colors.textPrimary,
   },
   categoryList: {
     flexDirection: 'row',
@@ -680,12 +688,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 6,
     elevation: 4,
-  },
-  toggleRow: {
-    marginTop: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
   },
   modalOverlay: {
     flex: 1,
@@ -803,4 +805,44 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
+  toggleRow: {
+    marginTop: 20,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+  },
+  toggleButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+
+  primaryButton: {
+    backgroundColor: colors.accent1,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+
+  secondaryButton: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    marginLeft: 8,
+  },
+
+  actionGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+    
+  buttonText: {
+    color: colors.textPrimary,
+    fontWeight: '600',
+  },
+
 });
