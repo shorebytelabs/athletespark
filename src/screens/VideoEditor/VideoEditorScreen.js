@@ -10,14 +10,13 @@ import {
   Modal,
   ScrollView,
   SafeAreaView,
-  PanResponder,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject, getAllProjects } from '../../utils/storage'; 
 import { interpolateSmartZoom } from '../../utils/interpolateSmartZoom'; 
 import Video from 'react-native-video';
 import TrimSlider from '../../components/TrimSlider'; 
-import { saveTrimInfo, loadTrimInfo, removeTrimInfo } from '../../utils/trimStorage';
+import { saveTrimInfo, loadTrimInfo } from '../../utils/trimStorage';
 import { colors } from '../../theme/theme';
 import ClipNavigation from '../../navigation/ClipNavigation';
 import RNFS from 'react-native-fs';
@@ -65,12 +64,12 @@ export default function VideoEditorScreen({ route, navigation }) {
   const [paused, setPaused] = useState(false);
   const [loopTrimPreview, setLoopTrimPreview] = useState(true);
 
-  //const [isTrimming, setIsTrimming] = useState(false);
   const [isBatchExporting, setIsBatchExporting] = useState(false);
   const [batchExportProgress, setBatchExportProgress] = useState({ current: 0, total: 0 });
 
   const projectId = project?.id;
   const clipId = currentClip?.id || currentClip?.uri;
+  const [smartZoomEnabled, setSmartZoomEnabled] = useState(false);
 
   // Load trim info when project or clip changes
   useEffect(() => {
@@ -355,6 +354,13 @@ export default function VideoEditorScreen({ route, navigation }) {
       }
     : {};
 
+  const handleDisableSmartZoom = () => {
+    // Reset Smart Zoom data for current clip
+    const updated = [...clips];
+    updated[currentIndex].smartZoomKeyframes = null;
+    setClips(updated);
+  };
+
 return (
   <SafeAreaView style={styles.safeArea}>
     <View style={styles.container}>
@@ -379,13 +385,6 @@ return (
               paused={paused}
             />
           </View>
-
-          {/* Smart Zoom Button */}
-          <Button
-            title="Smart Zoom Mode"
-            onPress={handleSmartZoom}
-            color={colors.accent1}
-          />
 
           <View style={styles.playbackControls}>
             <TouchableOpacity onPress={togglePlayPause} style={styles.playPauseButton}>
@@ -413,19 +412,6 @@ return (
             maximumTrackTintColor={colors.surface}
             thumbTintColor={colors.accent1}
           />
-        )}
-
-        {currentClip.smartZoomKeyframes && (
-          <View style={{ marginVertical: 12 }}>
-            <Button
-              title="Reset Smart Zoom"
-              onPress={() => {
-                const updated = [...clips];
-                updated[currentIndex].smartZoomKeyframes = null;
-                setClips(updated);
-              }}
-            />
-          </View>
         )}
 
         {/* Categories */}
@@ -466,8 +452,33 @@ return (
           })}
         </View>
 
+        {/* Smart Zoom toggle */}
+        <View style={styles.toggleRow}>
+          <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Smart Zoom:</Text>
+          <TouchableOpacity
+            onPress={() => {
+              if (smartZoomEnabled) {
+                handleDisableSmartZoom(); // reset Smart Zoom
+              } else {
+                handleSmartZoom(); // enter Smart Zoom editor
+              }
+              setSmartZoomEnabled(!smartZoomEnabled);
+            }}
+            style={{
+              backgroundColor: smartZoomEnabled ? colors.danger : colors.accent1,
+              paddingVertical: 8,
+              paddingHorizontal: 16,
+              borderRadius: 8,
+            }}
+          >
+            <Text style={{ color: colors.textPrimary, fontWeight: '600' }}>
+              {smartZoomEnabled ? 'Disable' : 'Enable'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Tracking toggle */}
-        <View style={styles.trackingContainer}>
+        <View style={styles.toggleRow}>
           <Text style={[styles.subtitle, { color: colors.textPrimary }]}>Athlete Tracking:</Text>
           <TouchableOpacity
             onPress={() => setTrackingEnabled(!trackingEnabled)}
@@ -670,7 +681,7 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 4,
   },
-  trackingContainer: {
+  toggleRow: {
     marginTop: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
