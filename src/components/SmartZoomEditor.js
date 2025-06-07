@@ -1,21 +1,31 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Button, StyleSheet, Alert } from 'react-native';
 import SmartZoomCanvas from './SmartZoomCanvas';
-import interpolateKeyframes from '../utils/interpolateKeyframes';
+import { interpolateAtTime } from '../utils/interpolateAtTime';
+import { generateDenseKeyframes } from '../utils/generateDenseKeyframes';
+import { useSharedValue } from 'react-native-reanimated';
 
 const OUTPUT_ASPECT_RATIO = 9 / 16;
 
 const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete }) => {
   const [keyframes, setKeyframes] = useState([]);
+  const [denseKeyframes, setDenseKeyframes] = useState([]);
   const [currentKeyframeIndex, setCurrentKeyframeIndex] = useState(0);
-  const [phase, setPhase] = useState('setup'); // setup | editing | preview
+  const [phase, setPhase] = useState('setup'); // 'setup' | 'editing' | 'preview'
   const [playbackTime, setPlaybackTime] = useState(trimStart);
   const [paused, setPaused] = useState(true);
   const [videoLayout, setVideoLayout] = useState(null);
+  const currentTime = useSharedValue(trimStart);
 
   const videoRef = useRef(null);
 
-  // 1. Generate initial keyframes
+  const isPreview = phase === 'preview';
+
+  const extractValue = (v) => {
+    return typeof v === 'object' && v?.value != null ? v.value : v;
+  };
+
+  // ✅ 1. Initial keyframe generation
   useEffect(() => {
     if (phase === 'setup') {
       const range = trimEnd - trimStart;
@@ -29,7 +39,17 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
     }
   }, [phase]);
 
-  // 2. Seek to keyframe timestamp when changed
+  // ✅ 2. Generate dense keyframes for preview
+  useEffect(() => {
+    if (phase === 'preview' && keyframes.length >= 2) {
+      const cleaned = keyframes.filter(kf => typeof kf.timestamp === 'number');
+      const dense = generateDenseKeyframes(cleaned);
+      setDenseKeyframes(dense);
+      setPaused(false); // autoplay in preview
+    }
+  }, [phase, keyframes]);
+
+  // ✅ 3. Seek when keyframe index changes
   useEffect(() => {
     if (videoRef.current && keyframes[currentKeyframeIndex]) {
       videoRef.current.seek(keyframes[currentKeyframeIndex].timestamp, 0);
@@ -58,17 +78,23 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
   const updateKeyframe = (index, data) => {
     setKeyframes((prev) => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], ...data };
+      updated[index] = {
+        ...updated[index],
+        x: data.x,
+        y: data.y,
+        scale: data.scale,
+      };
       return updated;
     });
   };
 
-  const handleProgress = ({ currentTime }) => {
-    if (currentTime >= trimEnd) {
+  const handleProgress = ({ currentTime: t }) => {
+    if (t >= trimEnd) {
       setPaused(true);
       videoRef.current.seek(trimStart);
     } else {
-      setPlaybackTime(currentTime);
+      currentTime.value = t;
+      setPlaybackTime(t);
     }
   };
 
@@ -77,20 +103,32 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
       Alert.alert('Error', 'Please create at least two keyframes.');
       return;
     }
-    onComplete?.(keyframes);
+
+    const cleanedKeyframes = keyframes.map((kf, i) => {
+      const cleaned = {
+        timestamp: typeof kf.timestamp === 'object' && kf.timestamp?.value != null ? kf.timestamp.value : kf.timestamp,
+        x: typeof kf.x === 'object' && kf.x?.value != null ? kf.x.value : kf.x,
+        y: typeof kf.y === 'object' && kf.y?.value != null ? kf.y.value : kf.y,
+        scale: typeof kf.scale === 'object' && kf.scale?.value != null ? kf.scale.value : kf.scale,
+      };
+
+      // Logging to debug this
+      if (typeof cleaned.x === 'object' || typeof cleaned.y === 'object' || typeof cleaned.scale === 'object') {
+        console.warn(`⚠️ Unclean value at keyframe ${i}`, cleaned, kf);
+      }
+
+      return cleaned;
+    });
+
+    try {
+      onComplete?.(cleanedKeyframes);
+    } catch (err) {
+      console.error('❌ Failed to complete Smart Zoom:', err, cleanedKeyframes);
+      Alert.alert('Export Error', 'Smart Zoom could not complete. See console for details.');
+    }
   };
 
-  const isPreview = phase === 'preview';
-  const [interpolatedZoom, setInterpolatedZoom] = useState({ x: 0, y: 0, scale: 1 });
-
-  useEffect(() => {
-    if (isPreview) {
-      const value = interpolateKeyframes(keyframes, playbackTime);
-      setInterpolatedZoom(value);
-    }
-  }, [keyframes, playbackTime, isPreview]);
-
-  const current = isPreview ? interpolatedZoom : keyframes[currentKeyframeIndex];
+  const current = isPreview ? interpolateAtTime(denseKeyframes, playbackTime) : keyframes[currentKeyframeIndex];
 
   return (
     <View style={styles.container}>
@@ -116,7 +154,9 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
             trimStart={trimStart}
             trimEnd={trimEnd}
             keyframes={keyframes}
+            denseKeyframes={denseKeyframes}
             playbackTime={playbackTime}
+            currentTime={currentTime}
           />
         )}
       </View>
@@ -138,7 +178,6 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
                 setCurrentKeyframeIndex((i) => i + 1);
               } else {
                 setPhase('preview');
-                setPaused(false);
               }
             }}
           />
@@ -151,7 +190,7 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
             title={paused ? 'Play ▶️' : 'Pause ⏸'}
             onPress={() => {
               if (paused && videoRef.current) {
-                videoRef.current.seek(0);
+                videoRef.current.seek(trimStart);
               }
               setPaused((p) => !p);
             }}

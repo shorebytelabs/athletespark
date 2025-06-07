@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject, getAllProjects } from '../../utils/projectStorage'; 
-import { interpolateSmartZoom } from '../../utils/interpolateSmartZoom'; 
+import { interpolateAtTime } from '../../utils/interpolateAtTime'; 
 import Video from 'react-native-video';
 import TrimSlider from '../../components/TrimSlider'; 
 import { saveTrimInfo, loadTrimInfo } from '../../utils/trimStorage';
@@ -23,6 +23,7 @@ import { colors } from '../../theme/theme';
 import ClipNavigation from '../../navigation/ClipNavigation';
 import RNFS from 'react-native-fs';
 import VideoEditorNativeModule from '../../nativemodules/VideoEditorNativeModule';
+import Animated from 'react-native-reanimated';
 
 const defaultCategories = [
   'Goal',
@@ -71,7 +72,7 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const projectId = project?.id;
   const clipId = currentClip?.id || currentClip?.uri;
-  const hasSmartZoom = clips[currentIndex]?.smartZoomKeyframes != null;
+  const hasSmartZoom = !!currentClip.smartZoomKeyframes?.length;//= clips[currentIndex]?.smartZoomKeyframes != null;
   const [safeUri, setSafeUri] = useState(null);
 
   // Check if clip file exists on disk and persist it if needed
@@ -368,17 +369,27 @@ export default function VideoEditorScreen({ route, navigation }) {
       clipIndex: currentIndex, 
     });
   };
-  const smartZoomTransform = currentClip.smartZoomKeyframes
-    ? interpolateSmartZoom(currentClip.smartZoomKeyframes, currentTime)
+
+  const zoomKeyframes = hasSmartZoom
+    ? currentClip.smartZoomKeyframes.map(kf => ({
+        time: kf.timestamp,
+        x: kf.x,
+        y: kf.y,
+        scale: kf.scale,
+      }))
+    : [];
+
+  const smartZoomTransform = hasSmartZoom
+    ? interpolateAtTime(zoomKeyframes, currentTime)
     : null;
 
-  const transformStyle = smartZoomTransform
+  const transformStyle = hasSmartZoom && smartZoomTransform
     ? {
         transform: [
-          { scale: smartZoomTransform.zoom },
+          { scale: smartZoomTransform.scale },
           { translateX: -smartZoomTransform.x },
           { translateY: -smartZoomTransform.y },
-        ]
+        ],
       }
     : {};
 
@@ -403,21 +414,21 @@ return (
         {/* Video Player */}
         <Text style={[styles.subtitle]}>TEST 2:</Text>
         <View style={styles.videoWrapper}>
-          <View style={[styles.videoZoomContainer, transformStyle]}>
+          <Animated.View style={[styles.videoZoomContainer]}>
             {safeUri && (
               <Video
                 ref={videoRef}
-                source={{uri: safeUri}}
+                source={{ uri: safeUri }}
                 onLoad={onLoad}
                 onError={onError}
                 onProgress={onProgress}
                 style={styles.video}
-                resizeMode="contain"
+                resizeMode="cover"
                 controls={false}
                 paused={paused}
               />
-              )}
-          </View>
+            )}
+          </Animated.View>
 
           <View style={styles.playbackControls}>
             <TouchableOpacity onPress={togglePlayPause} style={styles.playPauseButton}>
@@ -775,6 +786,7 @@ const styles = StyleSheet.create({
     width: '100%',
     aspectRatio: 16 / 9,
     backgroundColor: colors.background,
+    alignSelf: 'center',
   },
   playbackControls: {
     position: 'absolute',
@@ -832,8 +844,10 @@ const styles = StyleSheet.create({
     borderColor: 'white',
   },
   videoZoomContainer: {
-    flex: 1,
+    width: '100%',
+    height: '100%',
     overflow: 'hidden',
+    backgroundColor: 'black',
   },
   toggleRow: {
     marginTop: 20,

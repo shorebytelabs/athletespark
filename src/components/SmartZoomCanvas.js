@@ -1,14 +1,15 @@
+// SmartZoomCanvas.js
 import React, { useEffect } from 'react';
 import { StyleSheet } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
-  useDerivedValue,
   runOnJS,
+  useDerivedValue,
 } from 'react-native-reanimated';
 import Video from 'react-native-video';
-import interpolateKeyframes from '../utils/interpolateKeyframes';
+import { interpolateAtTime } from '../utils/interpolateAtTime';
 
 const SmartZoomCanvas = ({
   clip,
@@ -24,17 +25,24 @@ const SmartZoomCanvas = ({
   onEnd,
   trimStart,
   trimEnd,
-  playbackTime,
   keyframes,
+  denseKeyframes,
+  currentTime,
 }) => {
   const scale = useSharedValue(zoom);
   const translateX = useSharedValue(x);
   const translateY = useSharedValue(y);
 
-  // Seek to correct timestamp once video is loaded
+  const interpolatedTransform = useDerivedValue(() => {
+    'worklet';
+    if (!denseKeyframes?.value || typeof currentTime?.value !== 'number') {
+      return { x: 0, y: 0, scale: 1 };
+    }
+    return interpolateAtTime(denseKeyframes.value, currentTime.value);
+  });
+
   const onVideoLoad = () => {
     if (!videoRef.current) return;
-
     if (isPreview) {
       videoRef.current.seek(trimStart ?? 0, 0);
     } else if (clip.timestamp != null) {
@@ -42,8 +50,8 @@ const SmartZoomCanvas = ({
     }
   };
 
-  // Gestures
   const panGesture = Gesture.Pan().onChange((e) => {
+    if (isPreview) return;
     translateX.value += e.changeX / videoLayout.frameWidth;
     translateY.value += e.changeY / videoLayout.frameHeight;
     runOnJS(onChange)({
@@ -54,6 +62,7 @@ const SmartZoomCanvas = ({
   });
 
   const pinchGesture = Gesture.Pinch().onChange((e) => {
+    if (isPreview) return;
     scale.value *= e.scale;
     runOnJS(onChange)({
       x: translateX.value,
@@ -64,39 +73,35 @@ const SmartZoomCanvas = ({
 
   const composed = Gesture.Simultaneous(panGesture, pinchGesture);
 
-  // 🔄 Frame-synced zoom and pan interpolation
   useEffect(() => {
-    if (isPreview) {
-      scale.value = zoom;
-      translateX.value = x;
-      translateY.value = y;
-    }
+    scale.value = zoom;
+    translateX.value = x;
+    translateY.value = y;
   }, [x, y, zoom, isPreview]);
 
   const animatedStyle = useAnimatedStyle(() => {
-    const translateXPx = translateX.value * videoLayout.frameWidth;
-    const translateYPx = translateY.value * videoLayout.frameHeight;
+    if (isPreview && denseKeyframes?.value && typeof currentTime?.value === 'number') {
+      const t = interpolatedTransform.value;
+      return {
+        transform: [
+          { translateX: t.x * videoLayout.frameWidth },
+          { translateY: t.y * videoLayout.frameHeight },
+          { scale: t.scale },
+        ],
+      };
+    }
     return {
       transform: [
-        { translateX: translateXPx },
-        { translateY: translateYPx },
+        { translateX: translateX.value * videoLayout.frameWidth },
+        { translateY: translateY.value * videoLayout.frameHeight },
         { scale: scale.value },
       ],
     };
   });
 
-  // Set initial shared values when not previewing
-  useEffect(() => {
-    if (!isPreview) {
-      scale.value = zoom;
-      translateX.value = x;
-      translateY.value = y;
-    }
-  }, [x, y, zoom, isPreview]);
-
   return (
     <GestureDetector gesture={composed}>
-      <Animated.View style={[styles.frame, { width: videoLayout.frameWidth, height: videoLayout.frameHeight }]}>
+      <Animated.View style={[styles.frame, { width: videoLayout.frameWidth, height: videoLayout.frameHeight }]}> 
         <Animated.View style={[StyleSheet.absoluteFill, animatedStyle]}>
           <Video
             key={!isPreview ? `${clip.uri}_${clip.timestamp}` : undefined}
@@ -107,12 +112,12 @@ const SmartZoomCanvas = ({
             paused={paused}
             resizeMode="contain"
             onLoad={onVideoLoad}
-            onProgress={({ currentTime }) => {
+            onProgress={({ currentTime: t }) => {
               if (isPreview) {
-                if (currentTime >= trimEnd) {
+                if (t >= trimEnd) {
                   videoRef.current?.seek(trimStart);
                 } else {
-                  runOnJS(setPlaybackTime)(currentTime);
+                  runOnJS(setPlaybackTime)(t);
                 }
               }
             }}

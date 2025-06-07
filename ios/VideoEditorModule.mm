@@ -357,14 +357,14 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
   AVMutableVideoCompositionLayerInstruction *layerInstruction =
     [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:videoTrack];
 
-  // Sort keyframes by time to ensure proper interpolation
+  // ✅ Sort keyframes
   NSArray *sortedKeyframes = [keyframes sortedArrayUsingComparator:^NSComparisonResult(NSDictionary *a, NSDictionary *b) {
     float t1 = [a[@"time"] floatValue];
     float t2 = [b[@"time"] floatValue];
     return t1 < t2 ? NSOrderedAscending : NSOrderedDescending;
   }];
 
-  // Interpolated transform ramping
+  // ✅ Apply transform ramps between dense keyframe pairs
   for (NSInteger i = 0; i < sortedKeyframes.count - 1; i++) {
     NSDictionary *start = sortedKeyframes[i];
     NSDictionary *end = sortedKeyframes[i + 1];
@@ -374,29 +374,42 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
     CGFloat endX = [end[@"x"] floatValue];
     CGFloat endY = [end[@"y"] floatValue];
 
+    CGFloat startScale = [start[@"scale"] floatValue];
+    CGFloat endScale = [end[@"scale"] floatValue];
+    if (startScale <= 0) startScale = 1.0;
+    if (endScale <= 0) endScale = 1.0;
+
     CMTime startTime = CMTimeMakeWithSeconds([start[@"time"] floatValue], 600);
     CMTime endTime = CMTimeMakeWithSeconds([end[@"time"] floatValue], 600);
+    if (CMTIME_COMPARE_INLINE(endTime, <=, startTime)) continue;
 
-    if (CMTIME_COMPARE_INLINE(endTime, <=, startTime)) {
-      NSLog(@"⚠️ Skipping invalid keyframe pair: start=%f, end=%f", CMTimeGetSeconds(startTime), CMTimeGetSeconds(endTime));
-      continue;
-    }
+    CGAffineTransform startTransform = CGAffineTransformConcat(
+      CGAffineTransformMakeScale(startScale, startScale),
+      CGAffineTransformMakeTranslation(
+        -startX * frameSize.width * startScale + frameSize.width / 2.0,
+        -startY * frameSize.height * startScale + frameSize.height / 2.0)
+    );
 
-    CGAffineTransform startTransform = CGAffineTransformMakeTranslation(-startX + frameSize.width / 2, -startY + frameSize.height / 2);
-    CGAffineTransform endTransform = CGAffineTransformMakeTranslation(-endX + frameSize.width / 2, -endY + frameSize.height / 2);
+    CGAffineTransform endTransform = CGAffineTransformConcat(
+      CGAffineTransformMakeScale(endScale, endScale),
+      CGAffineTransformMakeTranslation(
+        -endX * frameSize.width * endScale + frameSize.width / 2.0,
+        -endY * frameSize.height * endScale + frameSize.height / 2.0)
+    );
 
+    CMTimeRange timeRange = CMTimeRangeMake(startTime, CMTimeSubtract(endTime, startTime));
     [layerInstruction setTransformRampFromStartTransform:startTransform
-                                         toEndTransform:endTransform
-                                              timeRange:CMTimeRangeMake(startTime, CMTimeSubtract(endTime, startTime))];
+                                          toEndTransform:endTransform
+                                               timeRange:timeRange];
   }
 
   instruction.layerInstructions = @[layerInstruction];
   videoComposition.instructions = @[instruction];
 
+  // 🔄 Set up export session
   AVAssetExportSession *exportSession = [AVAssetExportSession exportSessionWithAsset:composition
                                                                            presetName:AVAssetExportPresetHighestQuality];
 
-  // Ensure file overwrite
   NSFileManager *fileManager = [NSFileManager defaultManager];
   if ([fileManager fileExistsAtPath:outputPath]) {
     NSError *removeError = nil;
