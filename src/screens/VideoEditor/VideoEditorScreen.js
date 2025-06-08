@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject, getAllProjects } from '../../utils/projectStorage'; 
-import { interpolateAtTime } from '../../utils/interpolateAtTime'; 
+import { interpolateKeyframesSpline } from '../../utils/interpolateKeyframesSpline';
 import Video from 'react-native-video';
 import TrimSlider from '../../components/TrimSlider'; 
 import { saveTrimInfo, loadTrimInfo } from '../../utils/trimStorage';
@@ -92,6 +92,12 @@ export default function VideoEditorScreen({ route, navigation }) {
       // Try to persist it if needed
       try {
         const storedUri = await saveToPersistentStorage(currentClip.uri, project);
+        
+        if (!storedUri || !(await RNFS.exists(storedUri.replace('file://', '')))) {
+          console.warn('Clip could not be re-persisted:', currentClip.uri);
+          return;
+        }
+
         if (storedUri !== currentClip.uri) {
           const updated = [...clips];
           updated[currentIndex].uri = storedUri;
@@ -380,8 +386,8 @@ export default function VideoEditorScreen({ route, navigation }) {
     : [];
 
   const smartZoomTransform = hasSmartZoom
-    ? interpolateAtTime(zoomKeyframes, currentTime)
-    : null;
+  ? interpolateKeyframesSpline(zoomKeyframes, currentTime)
+  : null;
 
   const transformStyle = hasSmartZoom && smartZoomTransform
     ? {
@@ -402,6 +408,32 @@ export default function VideoEditorScreen({ route, navigation }) {
     updated[currentIndex].smartZoomKeyframes = null;
     setClips(updated);
   };
+
+  const logVideoFileDetails = async (uri) => {
+    // console.log('[SmartZoom] Attempting to load video:', uri);
+
+    try {
+      const exists = await RNFS.exists(uri);
+      // console.log(`[SmartZoom] File exists: ${exists}`);
+
+      if (exists) {
+        const stat = await RNFS.stat(uri);
+        // console.log(`[SmartZoom] File size: ${stat.size}`);
+        // console.log(`[SmartZoom] File modified: ${stat.mtime}`);
+        // console.log(`[SmartZoom] File path: ${stat.path}`);
+      } else {
+        console.warn('[SmartZoom] File does not exist at path:', uri);
+      }
+    } catch (err) {
+      console.error('[SmartZoom] Error while checking file stats:', err);
+    }
+  };
+
+  useEffect(() => {
+    if (currentClip?.uri) {
+      logVideoFileDetails(currentClip.uri);
+    }
+  }, [currentClip?.uri]);
 
 return (
   <SafeAreaView style={styles.safeArea}>
