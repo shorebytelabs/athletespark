@@ -1,127 +1,223 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { View, Text, Button, StyleSheet, Alert } from 'react-native';
+// SmartZoomEditor.js
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { View, Text, Button, StyleSheet } from 'react-native';
+import { useSharedValue, useFrameCallback, runOnJS } from 'react-native-reanimated';
 import SmartZoomCanvas from './SmartZoomCanvas';
-import interpolateKeyframes from '../utils/interpolateKeyframes';
 
 const OUTPUT_ASPECT_RATIO = 9 / 16;
 
-const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete }) => {
-  const [keyframes, setKeyframes] = useState([]);
+const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete }) => {
+  const keyframes = useSharedValue([]);
+  const keyframesShared = useSharedValue([]);
+  const currentTime = useSharedValue(trimStart);
+  const videoLayout = useSharedValue(null);
+  const isPreview = useSharedValue(false);
+
   const [currentKeyframeIndex, setCurrentKeyframeIndex] = useState(0);
-  const [phase, setPhase] = useState('setup'); // setup | editing | preview
+  const [phase, setPhase] = useState('setup');
   const [playbackTime, setPlaybackTime] = useState(trimStart);
   const [paused, setPaused] = useState(true);
-  const [videoLayout, setVideoLayout] = useState(null);
-
+  const [canRender, setCanRender] = useState(false);
   const videoRef = useRef(null);
 
-  // 1. Generate initial keyframes
+  const getTransformDefaults = (kf) => ({
+    timestamp: Number.isFinite(kf.timestamp) ? kf.timestamp : trimStart,
+    x: Number.isFinite(kf.x) ? kf.x : 0,
+    y: Number.isFinite(kf.y) ? kf.y : 0,
+    scale: Number.isFinite(kf.scale) ? kf.scale : 1.5,
+  });
+
+  const current =
+    keyframes.value?.[currentKeyframeIndex] || getTransformDefaults({});
+
+  const readyToEdit = keyframes.value.length === 3 && Number.isFinite(current.timestamp);
+  const currentKeyframeIndexShared = useSharedValue(0);
+
+  useEffect(() => {
+    currentKeyframeIndexShared.value = currentKeyframeIndex;
+  }, [currentKeyframeIndex]);
+
   useEffect(() => {
     if (phase === 'setup') {
       const range = trimEnd - trimStart;
-      const base = [
+      keyframes.value = [
         { timestamp: trimStart, x: 0, y: 0, scale: 1.5 },
         { timestamp: trimStart + range / 2, x: 0, y: 0, scale: 1.5 },
         { timestamp: trimEnd, x: 0, y: 0, scale: 1.5 },
       ];
-      setKeyframes(base);
+      currentTime.value = trimStart;
+      setPlaybackTime(trimStart);
       setPhase('editing');
     }
   }, [phase]);
 
-  // 2. Seek to keyframe timestamp when changed
   useEffect(() => {
-    if (videoRef.current && keyframes[currentKeyframeIndex]) {
-      videoRef.current.seek(keyframes[currentKeyframeIndex].timestamp, 0);
+    const id = setInterval(() => {
+      if (keyframes.value.length === 3 && keyframes.value.every((kf) => Number.isFinite(kf.timestamp))) {
+        setCanRender(true);
+        clearInterval(id);
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    if (!isPreview.value && current?.timestamp && videoRef.current) {
+      const ts = current.timestamp;
+      requestAnimationFrame(() => {
+        videoRef.current?.seek(ts);
+      });
     }
   }, [currentKeyframeIndex]);
 
+  useEffect(() => {
+    if (isPreview.value) {
+      setPaused(false);
+      currentTime.value = trimStart;
+      setPlaybackTime(trimStart);
+      setTimeout(() => {
+        requestAnimationFrame(() => videoRef.current?.seek(trimStart));
+      }, 100);
+    }
+  }, [isPreview.value]);
+
+  useFrameCallback(({ timeSincePreviousFrame }) => {
+    if (isPreview.value && !paused) {
+      const nextTime = currentTime.value + timeSincePreviousFrame / 1000;
+
+      if (nextTime >= trimEnd) {
+        currentTime.value = trimEnd;
+        runOnJS(setPaused)(true);
+      } else {
+        currentTime.value = nextTime;
+      }
+
+      runOnJS(setPlaybackTime)(currentTime.value);
+    }
+  });
+
+  const updateKeyframe = useCallback((index, data) => {
+    const newFrames = [...keyframes.value];
+    newFrames[index] = { ...newFrames[index], ...data };
+    keyframes.value = newFrames;
+    // console.log('📝 Updated keyframe', index + 1, newFrames[index]);
+  }, []);
+
+  const finishZoom = useCallback(() => {
+    const cleaned = keyframes.value.map(getTransformDefaults).map((kf) => ({
+      ...kf,
+      timestamp: Math.max(trimStart, Math.min(kf.timestamp, trimEnd)),
+    }));
+    keyframesShared.value = cleaned;
+    console.log('✅ Cleaned keyframes for preview:', cleaned);
+    onComplete?.(cleaned);
+  }, [onComplete, keyframes.value, getTransformDefaults, trimStart, trimEnd]);
+
   const handleLayout = (event) => {
     const { width, height } = event.nativeEvent.layout;
-    const containerAspect = width / height;
+    console.log('📐 Raw layout:', { width, height });
+
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width === 0 || height === 0) {
+      console.warn('⚠️ Skipping layout: invalid dimensions', { width, height });
+      return;
+    }
+
+    const ratio = width / height;
     let frameWidth, frameHeight;
-    if (containerAspect > OUTPUT_ASPECT_RATIO) {
+
+    if (ratio > OUTPUT_ASPECT_RATIO) {
       frameHeight = height;
       frameWidth = height * OUTPUT_ASPECT_RATIO;
     } else {
       frameWidth = width;
       frameHeight = width / OUTPUT_ASPECT_RATIO;
     }
-    setVideoLayout({
+
+    const layoutObject = {
       containerWidth: width,
       containerHeight: height,
       frameWidth,
       frameHeight,
+    };
+
+    videoLayout.value = layoutObject;
+    console.log('📏 Layout set:', layoutObject);
+  };
+
+  const hasValidPreviewData =
+    isPreview.value &&
+    Array.isArray(keyframesShared.value) &&
+    keyframesShared.value.length >= 2 &&
+    keyframesShared.value.every((kf) => Number.isFinite(kf.timestamp) && Number.isFinite(kf.scale));
+
+  const shouldRenderCanvas =
+  videoLayout.value &&
+  canRender &&
+  ((isPreview.value && hasValidPreviewData) ||
+    (!isPreview.value && readyToEdit));
+
+  const onVideoLoad = useCallback(() => {
+    console.log('🎞 Video loaded');
+    const seekTo = isPreview.value ? trimStart : current.timestamp;
+    requestAnimationFrame(() => videoRef.current?.seek(seekTo));
+  }, [isPreview.value, current.timestamp, trimStart]);
+
+  const handleEnd = useCallback(() => setPaused(true), []);
+
+  const handleChange = useCallback(
+    (transform, index) => {
+      if (!isPreview.value) updateKeyframe(index, transform);
+    },
+    [isPreview.value, updateKeyframe]
+  );
+
+  const goToPreview = useCallback(() => {
+    const cleaned = keyframes.value.map(getTransformDefaults).map((kf) => ({
+      ...kf,
+      timestamp: Math.max(trimStart, Math.min(kf.timestamp, trimEnd)),
+    }));
+    keyframesShared.value = cleaned;
+    console.log('✅ Cleaned keyframes for preview:', cleaned);
+
+    isPreview.value = true;
+    setPaused(false);
+    currentTime.value = trimStart;
+    setPlaybackTime(trimStart);
+
+    requestAnimationFrame(() => {
+      videoRef.current?.seek(trimStart);
     });
-  };
-
-  const updateKeyframe = (index, data) => {
-    setKeyframes((prev) => {
-      const updated = [...prev];
-      updated[index] = { ...updated[index], ...data };
-      return updated;
-    });
-  };
-
-  const handleProgress = ({ currentTime }) => {
-    if (currentTime >= trimEnd) {
-      setPaused(true);
-      videoRef.current.seek(trimStart);
-    } else {
-      setPlaybackTime(currentTime);
-    }
-  };
-
-  const handleFinish = () => {
-    if (!keyframes || keyframes.length < 2) {
-      Alert.alert('Error', 'Please create at least two keyframes.');
-      return;
-    }
-    onComplete?.(keyframes);
-  };
-
-  const isPreview = phase === 'preview';
-  const [interpolatedZoom, setInterpolatedZoom] = useState({ x: 0, y: 0, scale: 1 });
-
-  useEffect(() => {
-    if (isPreview) {
-      const value = interpolateKeyframes(keyframes, playbackTime);
-      setInterpolatedZoom(value);
-    }
-  }, [keyframes, playbackTime, isPreview]);
-
-  const current = isPreview ? interpolatedZoom : keyframes[currentKeyframeIndex];
+  }, [keyframes.value, getTransformDefaults, trimStart, trimEnd]);
 
   return (
     <View style={styles.container}>
       <Text style={styles.header}>Smart Zoom Editor</Text>
 
       <View style={styles.videoContainer} onLayout={handleLayout}>
-        {videoLayout && (
+        {shouldRenderCanvas && (
           <SmartZoomCanvas
-            clip={{
-              uri: videoUri,
-              timestamp: isPreview ? playbackTime : current?.timestamp,
-            }}
-            zoom={current?.scale || 1}
-            x={current?.x || 0}
-            y={current?.y || 0}
+            clip={{ uri: videoUri || '' }}
+            zoom={current.scale}
+            x={current.x}
+            y={current.y}
+            onChange={handleChange}
             videoLayout={videoLayout}
-            onChange={(transform) => !isPreview && updateKeyframe(currentKeyframeIndex, transform)}
             paused={paused}
-            setPlaybackTime={setPlaybackTime}
             isPreview={isPreview}
+            setPlaybackTime={setPlaybackTime}
             videoRef={videoRef}
-            onEnd={() => setPaused(true)}
+            onEnd={handleEnd}
             trimStart={trimStart}
             trimEnd={trimEnd}
-            keyframes={keyframes}
-            playbackTime={playbackTime}
+            keyframes={isPreview.value ? keyframesShared : keyframes}
+            currentTime={currentTime}
+            onLoad={onVideoLoad}
+            currentKeyframeIndex={currentKeyframeIndexShared}
           />
         )}
       </View>
 
-      {!isPreview && (
+      {readyToEdit && !isPreview.value && (
         <View style={styles.controls}>
           <Button
             title="◀ Prev"
@@ -129,34 +225,35 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
             onPress={() => setCurrentKeyframeIndex((i) => Math.max(0, i - 1))}
           />
           <Text style={styles.stepLabel}>
-            Frame {currentKeyframeIndex + 1} of {keyframes.length}
+            Frame {currentKeyframeIndex + 1} of {keyframes.value.length}
           </Text>
           <Button
-            title={currentKeyframeIndex < keyframes.length - 1 ? 'Next ▶' : 'Preview ▶️'}
+            title={currentKeyframeIndex < keyframes.value.length - 1 ? 'Next ▶' : 'Preview ▶️'}
             onPress={() => {
-              if (currentKeyframeIndex < keyframes.length - 1) {
+              if (currentKeyframeIndex < keyframes.value.length - 1) {
                 setCurrentKeyframeIndex((i) => i + 1);
               } else {
-                setPhase('preview');
-                setPaused(false);
+                goToPreview();
               }
             }}
           />
         </View>
       )}
 
-      {isPreview && (
+      {readyToEdit && isPreview.value && (
         <View style={styles.controls}>
           <Button
             title={paused ? 'Play ▶️' : 'Pause ⏸'}
             onPress={() => {
-              if (paused && videoRef.current) {
-                videoRef.current.seek(0);
+              if (paused) {
+                currentTime.value = trimStart;
+                setPlaybackTime(trimStart);
+                requestAnimationFrame(() => videoRef.current?.seek(trimStart));
               }
               setPaused((p) => !p);
             }}
           />
-          <Button title="Finish Smart Zoom" onPress={handleFinish} />
+          <Button title="Finish Smart Zoom" onPress={finishZoom} />
         </View>
       )}
     </View>
@@ -175,11 +272,11 @@ const styles = StyleSheet.create({
   videoContainer: {
     alignSelf: 'center',
     width: '90%',
-    aspectRatio: 9 / 16,
+    aspectRatio: OUTPUT_ASPECT_RATIO,
     backgroundColor: 'black',
     overflow: 'hidden',
-    borderWidth: 1,
     borderColor: 'white',
+    borderWidth: 1,
     borderRadius: 8,
     marginVertical: 10,
   },
@@ -187,7 +284,6 @@ const styles = StyleSheet.create({
     padding: 20,
     flexDirection: 'row',
     justifyContent: 'space-around',
-    alignItems: 'center',
   },
   stepLabel: {
     color: 'white',

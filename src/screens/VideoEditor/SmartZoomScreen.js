@@ -7,9 +7,16 @@ const SmartZoomScreen = ({ route, navigation }) => {
   const [validData, setValidData] = useState(false);
 
   useEffect(() => {
-    if (!videoUri || trimStart == null || trimEnd == null || duration == null || clipIndex == null) {
-      Alert.alert('Missing data', 'No clip selected or clip is missing data');
-      navigation.goBack(updatedClip,);
+    const isValid =
+      typeof videoUri === 'string' &&
+      typeof trimStart === 'number' &&
+      typeof trimEnd === 'number' &&
+      typeof duration === 'number' &&
+      typeof clipIndex === 'number';
+
+    if (!isValid) {
+      Alert.alert('Missing data', 'No clip selected or clip is missing required information.');
+      navigation.goBack();
     } else {
       setValidData(true);
     }
@@ -17,7 +24,7 @@ const SmartZoomScreen = ({ route, navigation }) => {
 
   const handleComplete = (keyframes) => {
     navigation.navigate({
-      name: 'VideoEditor', 
+      name: 'VideoEditor',
       params: {
         updatedSmartZoom: {
           project,
@@ -29,31 +36,15 @@ const SmartZoomScreen = ({ route, navigation }) => {
     });
   };
 
-  const handleCancel = () => {
-    navigation.goBack(updatedClip,);
-  };
-
   return (
     <View style={styles.container}>
       {validData && (
         <SmartZoomEditor
-            videoUri={videoUri}
-            trimStart={trimStart}
-            trimEnd={trimEnd}
-            duration={duration}
-            onComplete={(keyframes) => {
-                navigation.navigate({
-                  name: 'VideoEditor',
-                  params: {
-                    updatedSmartZoom: {
-                      project,
-                      clipIndex,
-                      keyframes,
-                    },
-                  },
-                  merge: true,
-                });
-            }}
+          videoUri={videoUri}
+          trimStart={trimStart}
+          trimEnd={trimEnd}
+          duration={duration}
+          onComplete={handleComplete}
         />
       )}
     </View>

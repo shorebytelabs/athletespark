@@ -3,13 +3,7 @@ package com.athletespark.videoeditor
 import com.athletespark.videoeditor.model.FrameCenter
 import android.content.Context
 import android.media.*
-import android.opengl.EGL14
-import android.opengl.EGLContext
-import android.opengl.EGLDisplay
-import android.opengl.EGLSurface
-import android.view.Surface
 import java.io.File
-import java.nio.ByteBuffer
 
 class SmartZoomProcessor(private val context: Context) {
 
@@ -102,7 +96,6 @@ class SmartZoomProcessor(private val context: Context) {
 
                 decoder.releaseOutputBuffer(outputBufferIndex, true)
 
-                // Feed encoder and write output
                 while (true) {
                     val encoderStatus = encoder.dequeueOutputBuffer(bufferInfo, 0)
                     if (encoderStatus == MediaCodec.INFO_TRY_AGAIN_LATER) break
@@ -144,19 +137,38 @@ class SmartZoomProcessor(private val context: Context) {
     }
 
     private fun interpolateKeyframes(timeUs: Long, keyframes: List<FrameCenter>): FrameCenter {
-        if (keyframes.isEmpty()) return FrameCenter(timeUs, 0.5f, 0.5f)
+        if (keyframes.isEmpty()) return FrameCenter(timeUs / 1000, 0.5f, 0.5f, 1.0f)
 
         val ms = timeUs / 1000
-        val before = keyframes.lastOrNull { it.timeMs <= ms } ?: keyframes.first()
-        val after = keyframes.firstOrNull { it.timeMs > ms } ?: keyframes.last()
+        var i = keyframes.indexOfLast { it.timeMs <= ms }
+        if (i < 1) i = 1
+        if (i > keyframes.size - 3) i = keyframes.size - 3
 
-        if (before == after) return before
+        val p0 = keyframes.getOrNull(i - 1) ?: keyframes.first()
+        val p1 = keyframes[i]
+        val p2 = keyframes.getOrNull(i + 1) ?: keyframes.last()
+        val p3 = keyframes.getOrNull(i + 2) ?: keyframes.last()
 
-        val fraction = (ms - before.timeMs).toFloat() / (after.timeMs - before.timeMs)
-        val centerX = before.centerX + (after.centerX - before.centerX) * fraction
-        val centerY = before.centerY + (after.centerY - before.centerY) * fraction
-        val zoom = 2.0f // fixed zoom for now
+        val tRange = (p2.timeMs - p1.timeMs).coerceAtLeast(1)
+        val t = ((ms - p1.timeMs).toFloat() / tRange).coerceIn(0f, 1f)
 
-        return FrameCenter(ms, centerX, centerY, zoom)
+        return catmullRomInterpolate(p0, p1, p2, p3, t)
+    }
+
+    private fun catmullRomInterpolate(p0: FrameCenter, p1: FrameCenter, p2: FrameCenter, p3: FrameCenter, t: Float): FrameCenter {
+        fun interpolate(a: Float, b: Float, c: Float, d: Float): Float {
+            return 0.5f * (
+                2f * b +
+                (c - a) * t +
+                (2f * a - 5f * b + 4f * c - d) * t * t +
+                (d - a - 3f * (c - b)) * t * t * t
+            )
+        }
+
+        val centerX = interpolate(p0.centerX, p1.centerX, p2.centerX, p3.centerX)
+        val centerY = interpolate(p0.centerY, p1.centerY, p2.centerY, p3.centerY)
+        val zoom = interpolate(p0.zoom, p1.zoom, p2.zoom, p3.zoom)
+
+        return FrameCenter(p1.timeMs, centerX, centerY, zoom)
     }
 }
