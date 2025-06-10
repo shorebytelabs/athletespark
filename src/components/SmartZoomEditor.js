@@ -32,6 +32,7 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete }) => {
 
   const readyToEdit = keyframes.value.length === 3 && Number.isFinite(current.timestamp);
   const currentKeyframeIndexShared = useSharedValue(0);
+  const [previewFinished, setPreviewFinished] = useState(false);
 
   useEffect(() => {
     currentKeyframeIndexShared.value = currentKeyframeIndex;
@@ -88,6 +89,7 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete }) => {
       if (nextTime >= trimEnd) {
         currentTime.value = trimEnd;
         runOnJS(setPaused)(true);
+        runOnJS(setPreviewFinished)(true); 
       } else {
         currentTime.value = nextTime;
       }
@@ -95,6 +97,16 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete }) => {
       runOnJS(setPlaybackTime)(currentTime.value);
     }
   });
+
+  useEffect(() => {
+    if (isPreview.value && playbackTime >= trimEnd) {
+      setPaused(true);
+      currentTime.value = trimEnd;
+      videoRef.current?.seek(trimEnd);
+      isPreview.value = false;
+      setPreviewFinished(true); 
+    }
+  }, [playbackTime, trimEnd]);
 
   const updateKeyframe = useCallback((index, data) => {
     const newFrames = [...keyframes.value];
@@ -203,6 +215,7 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete }) => {
             onChange={handleChange}
             videoLayout={videoLayout}
             paused={paused}
+            repeat={false} 
             isPreview={isPreview}
             setPlaybackTime={setPlaybackTime}
             videoRef={videoRef}
@@ -213,11 +226,12 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete }) => {
             currentTime={currentTime}
             onLoad={onVideoLoad}
             currentKeyframeIndex={currentKeyframeIndexShared}
+            setPaused={setPaused}
           />
         )}
       </View>
 
-      {readyToEdit && !isPreview.value && (
+      {readyToEdit && !isPreview.value && !previewFinished && (
         <View style={styles.controls}>
           <Button
             title="◀ Prev"
@@ -234,23 +248,20 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete }) => {
                 setCurrentKeyframeIndex((i) => i + 1);
               } else {
                 goToPreview();
+                setPreviewFinished(false); // reset when starting preview
               }
             }}
           />
         </View>
       )}
 
-      {readyToEdit && isPreview.value && (
+      {readyToEdit && (isPreview.value || previewFinished) && (
         <View style={styles.controls}>
           <Button
-            title={paused ? 'Play ▶️' : 'Pause ⏸'}
+            title="Preview ▶️"
             onPress={() => {
-              if (paused) {
-                currentTime.value = trimStart;
-                setPlaybackTime(trimStart);
-                requestAnimationFrame(() => videoRef.current?.seek(trimStart));
-              }
-              setPaused((p) => !p);
+              goToPreview();
+              setPreviewFinished(false);
             }}
           />
           <Button title="Finish Smart Zoom" onPress={finishZoom} />

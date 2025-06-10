@@ -29,6 +29,7 @@ const SmartZoomCanvas = ({
   onLoad,
   onChange,
   currentKeyframeIndex,
+  setPaused,
 }) => {
   const offsetX = useSharedValue(x);
   const offsetY = useSharedValue(y);
@@ -180,6 +181,17 @@ const SmartZoomCanvas = ({
           style={{ width: '100%', height: '100%' }}
           repeat
           muted
+          onProgress={({ currentTime: time }) => {
+            if (time >= trimEnd) {
+              setPaused(true); // pause the React state
+              currentTime.value = trimEnd;
+              setPlaybackTime(trimEnd);
+              videoRef.current?.seek(trimEnd);
+            } else {
+              currentTime.value = time;
+              setPlaybackTime(time);
+            }
+          }}
         />
       </Animated.View>
     </GestureDetector>
