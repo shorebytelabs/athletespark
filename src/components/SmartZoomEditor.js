@@ -1,51 +1,50 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+// SmartZoomEditor.js
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, Button, StyleSheet } from 'react-native';
-import { useSharedValue } from 'react-native-reanimated';
+import { useSharedValue, useFrameCallback, runOnJS } from 'react-native-reanimated';
 import SmartZoomCanvas from './SmartZoomCanvas';
 
 const OUTPUT_ASPECT_RATIO = 9 / 16;
 
-const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete }) => {
+const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete }) => {
   const keyframes = useSharedValue([]);
   const keyframesShared = useSharedValue([]);
   const currentTime = useSharedValue(trimStart);
+  const videoLayout = useSharedValue(null);
+  const isPreview = useSharedValue(false);
 
   const [currentKeyframeIndex, setCurrentKeyframeIndex] = useState(0);
   const [phase, setPhase] = useState('setup');
   const [playbackTime, setPlaybackTime] = useState(trimStart);
   const [paused, setPaused] = useState(true);
-  const [videoLayout, setVideoLayout] = useState(null);
-
+  const [canRender, setCanRender] = useState(false);
   const videoRef = useRef(null);
 
-  const isPreview = useMemo(() => phase === 'preview', [phase]);
-
-  const getTransformDefaults = (kf) => {
-    const safeTimestamp = Number(kf.timestamp);
-    return {
-      timestamp: Number.isFinite(safeTimestamp) ? safeTimestamp : trimStart,
-      x: Number.isFinite(kf.x) ? kf.x : 0,
-      y: Number.isFinite(kf.y) ? kf.y : 0,
-      scale: Number.isFinite(kf.scale) ? kf.scale : 1.5,
-    };
-  };
+  const getTransformDefaults = (kf) => ({
+    timestamp: Number.isFinite(kf.timestamp) ? kf.timestamp : trimStart,
+    x: Number.isFinite(kf.x) ? kf.x : 0,
+    y: Number.isFinite(kf.y) ? kf.y : 0,
+    scale: Number.isFinite(kf.scale) ? kf.scale : 1.5,
+  });
 
   const current =
-    keyframes.value.length > currentKeyframeIndex && keyframes.value[currentKeyframeIndex]
-      ? getTransformDefaults(keyframes.value[currentKeyframeIndex])
-      : { timestamp: trimStart, x: 0, y: 0, scale: 1.5 };
+    keyframes.value?.[currentKeyframeIndex] || getTransformDefaults({});
 
-  const readyToEdit = keyframes.value.length === 3 && current;
+  const readyToEdit = keyframes.value.length === 3 && Number.isFinite(current.timestamp);
+  const currentKeyframeIndexShared = useSharedValue(0);
+
+  useEffect(() => {
+    currentKeyframeIndexShared.value = currentKeyframeIndex;
+  }, [currentKeyframeIndex]);
 
   useEffect(() => {
     if (phase === 'setup') {
       const range = trimEnd - trimStart;
-      const kfs = [
+      keyframes.value = [
         { timestamp: trimStart, x: 0, y: 0, scale: 1.5 },
         { timestamp: trimStart + range / 2, x: 0, y: 0, scale: 1.5 },
         { timestamp: trimEnd, x: 0, y: 0, scale: 1.5 },
       ];
-      keyframes.value = kfs;
       currentTime.value = trimStart;
       setPlaybackTime(trimStart);
       setPhase('editing');
@@ -53,48 +52,79 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
   }, [phase]);
 
   useEffect(() => {
-    if (!isPreview && current?.timestamp != null && videoRef.current) {
-      videoRef.current.seek(current.timestamp);
-    }
-  }, [currentKeyframeIndex, isPreview]);
+    const id = setInterval(() => {
+      if (keyframes.value.length === 3 && keyframes.value.every((kf) => Number.isFinite(kf.timestamp))) {
+        setCanRender(true);
+        clearInterval(id);
+      }
+    }, 100);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
-    if (isPreview) {
+    if (!isPreview.value && current?.timestamp && videoRef.current) {
+      const ts = current.timestamp;
+      requestAnimationFrame(() => {
+        videoRef.current?.seek(ts);
+      });
+    }
+  }, [currentKeyframeIndex]);
+
+  useEffect(() => {
+    if (isPreview.value) {
       setPaused(false);
       currentTime.value = trimStart;
       setPlaybackTime(trimStart);
-      if (videoRef.current) {
-        videoRef.current.seek(trimStart);
-      }
+      setTimeout(() => {
+        requestAnimationFrame(() => videoRef.current?.seek(trimStart));
+      }, 100);
     }
-  }, [isPreview]);
+  }, [isPreview.value]);
 
-  const updateKeyframe = (index, data) => {
+  useFrameCallback(({ timeSincePreviousFrame }) => {
+    if (isPreview.value && !paused) {
+      const nextTime = currentTime.value + timeSincePreviousFrame / 1000;
+
+      if (nextTime >= trimEnd) {
+        currentTime.value = trimEnd;
+        runOnJS(setPaused)(true);
+      } else {
+        currentTime.value = nextTime;
+      }
+
+      runOnJS(setPlaybackTime)(currentTime.value);
+    }
+  });
+
+  const updateKeyframe = useCallback((index, data) => {
     const newFrames = [...keyframes.value];
     newFrames[index] = { ...newFrames[index], ...data };
     keyframes.value = newFrames;
-    console.log('📝 Updated keyframe', index + 1, newFrames[index]);
-  };
+    // console.log('📝 Updated keyframe', index + 1, newFrames[index]);
+  }, []);
 
-  const finishZoom = () => {
-    const cleaned = keyframes.value
-      .map(getTransformDefaults)
-      .filter(k => typeof k.timestamp === 'number' && !isNaN(k.timestamp));
-
-    console.log('✅ Finishing Smart Zoom with cleaned keyframes:', cleaned);
-
-    if (cleaned.length >= 2) {
-      keyframesShared.value = cleaned;
-      onComplete?.(cleaned);
-    } else {
-      console.warn('⚠️ Not enough valid keyframes to finish Smart Zoom.');
-    }
-  };
+  const finishZoom = useCallback(() => {
+    const cleaned = keyframes.value.map(getTransformDefaults).map((kf) => ({
+      ...kf,
+      timestamp: Math.max(trimStart, Math.min(kf.timestamp, trimEnd)),
+    }));
+    keyframesShared.value = cleaned;
+    console.log('✅ Cleaned keyframes for preview:', cleaned);
+    onComplete?.(cleaned);
+  }, [onComplete, keyframes.value, getTransformDefaults, trimStart, trimEnd]);
 
   const handleLayout = (event) => {
     const { width, height } = event.nativeEvent.layout;
+    console.log('📐 Raw layout:', { width, height });
+
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width === 0 || height === 0) {
+      console.warn('⚠️ Skipping layout: invalid dimensions', { width, height });
+      return;
+    }
+
     const ratio = width / height;
     let frameWidth, frameHeight;
+
     if (ratio > OUTPUT_ASPECT_RATIO) {
       frameHeight = height;
       frameWidth = height * OUTPUT_ASPECT_RATIO;
@@ -102,68 +132,92 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
       frameWidth = width;
       frameHeight = width / OUTPUT_ASPECT_RATIO;
     }
-    setVideoLayout({
+
+    const layoutObject = {
       containerWidth: width,
       containerHeight: height,
       frameWidth,
       frameHeight,
-    });
-  };
+    };
 
-  const getFallbackKeyframes = () => [
-    { timestamp: trimStart, x: 0, y: 0, scale: 1.5 },
-    { timestamp: (trimStart + trimEnd) / 2, x: 0, y: 0, scale: 1.5 },
-    { timestamp: trimEnd, x: 0, y: 0, scale: 1.5 },
-  ];
+    videoLayout.value = layoutObject;
+    console.log('📏 Layout set:', layoutObject);
+  };
 
   const hasValidPreviewData =
-    isPreview &&
-    keyframesShared.value?.length >= 2 &&
-    typeof currentTime.value === 'number' &&
-    Number.isFinite(currentTime.value);
+    isPreview.value &&
+    Array.isArray(keyframesShared.value) &&
+    keyframesShared.value.length >= 2 &&
+    keyframesShared.value.every((kf) => Number.isFinite(kf.timestamp) && Number.isFinite(kf.scale));
 
   const shouldRenderCanvas =
-    videoLayout && ((isPreview && hasValidPreviewData) || (!isPreview && readyToEdit));
+  videoLayout.value &&
+  canRender &&
+  ((isPreview.value && hasValidPreviewData) ||
+    (!isPreview.value && readyToEdit));
 
-  const onVideoLoad = () => {
-    console.log('🎥 onVideoLoad triggered, seeking to:', isPreview ? trimStart : current?.timestamp);
-    if (videoRef.current) {
-      const seekTo = isPreview ? trimStart : current?.timestamp;
-      if (typeof seekTo === 'number') {
-        videoRef.current.seek(seekTo);
-      }
-    }
-  };
+  const onVideoLoad = useCallback(() => {
+    console.log('🎞 Video loaded');
+    const seekTo = isPreview.value ? trimStart : current.timestamp;
+    requestAnimationFrame(() => videoRef.current?.seek(seekTo));
+  }, [isPreview.value, current.timestamp, trimStart]);
+
+  const handleEnd = useCallback(() => setPaused(true), []);
+
+  const handleChange = useCallback(
+    (transform, index) => {
+      if (!isPreview.value) updateKeyframe(index, transform);
+    },
+    [isPreview.value, updateKeyframe]
+  );
+
+  const goToPreview = useCallback(() => {
+    const cleaned = keyframes.value.map(getTransformDefaults).map((kf) => ({
+      ...kf,
+      timestamp: Math.max(trimStart, Math.min(kf.timestamp, trimEnd)),
+    }));
+    keyframesShared.value = cleaned;
+    console.log('✅ Cleaned keyframes for preview:', cleaned);
+
+    isPreview.value = true;
+    setPaused(false);
+    currentTime.value = trimStart;
+    setPlaybackTime(trimStart);
+
+    requestAnimationFrame(() => {
+      videoRef.current?.seek(trimStart);
+    });
+  }, [keyframes.value, getTransformDefaults, trimStart, trimEnd]);
 
   return (
     <View style={styles.container}>
       <Text style={styles.header}>Smart Zoom Editor</Text>
 
       <View style={styles.videoContainer} onLayout={handleLayout}>
-        {/* {shouldRenderCanvas && ( */}
-        {videoLayout && (  
+        {shouldRenderCanvas && (
           <SmartZoomCanvas
-            clip={{ uri: videoUri }}
-            zoom={current?.scale}
-            x={current?.x}
-            y={current?.y}
-            onChange={(t) => !isPreview && updateKeyframe(currentKeyframeIndex, t)}
+            clip={{ uri: videoUri || '' }}
+            zoom={current.scale}
+            x={current.x}
+            y={current.y}
+            onChange={handleChange}
             videoLayout={videoLayout}
             paused={paused}
             isPreview={isPreview}
             setPlaybackTime={setPlaybackTime}
             videoRef={videoRef}
-            onEnd={() => setPaused(true)}
+            onEnd={handleEnd}
             trimStart={trimStart}
             trimEnd={trimEnd}
-            keyframes={isPreview ? keyframesShared : keyframes}
+            keyframes={isPreview.value ? keyframesShared : keyframes}
             currentTime={currentTime}
             onLoad={onVideoLoad}
+            currentKeyframeIndex={currentKeyframeIndexShared}
           />
         )}
       </View>
 
-      {readyToEdit && !isPreview && (
+      {readyToEdit && !isPreview.value && (
         <View style={styles.controls}>
           <Button
             title="◀ Prev"
@@ -179,29 +233,22 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, duration, onComplete })
               if (currentKeyframeIndex < keyframes.value.length - 1) {
                 setCurrentKeyframeIndex((i) => i + 1);
               } else {
-                const fallback = getFallbackKeyframes();
-                const validKeyframes =
-                  Array.isArray(keyframes.value) && keyframes.value.length >= 2
-                    ? keyframes.value.filter((k) => typeof k.timestamp === 'number')
-                    : fallback;
-
-                const cleaned = validKeyframes.map(getTransformDefaults);
-                keyframesShared.value = cleaned;
-                console.log('🔁 Copied keyframes into keyframesShared:', cleaned);
-                setPhase('preview');
+                goToPreview();
               }
             }}
           />
         </View>
       )}
 
-      {readyToEdit && isPreview && (
+      {readyToEdit && isPreview.value && (
         <View style={styles.controls}>
           <Button
             title={paused ? 'Play ▶️' : 'Pause ⏸'}
             onPress={() => {
               if (paused) {
-                videoRef.current?.seek(trimStart);
+                currentTime.value = trimStart;
+                setPlaybackTime(trimStart);
+                requestAnimationFrame(() => videoRef.current?.seek(trimStart));
               }
               setPaused((p) => !p);
             }}

@@ -27,14 +27,14 @@ export function catmullRomSpline(p0, p1, p2, p3, t) {
   );
 
   const clampedScale = Math.max(1, Math.min(10, isFinite(scale) ? scale : 1));
-  const clampedX = Math.max(-1, Math.min(1, isFinite(x) ? x : 0));
-  const clampedY = Math.max(-1, Math.min(1, isFinite(y) ? y : 0));
+  const safeX = isFinite(x) ? x : 0;
+  const safeY = isFinite(y) ? y : 0;
 
   if (DEBUG && (!isFinite(x) || !isFinite(y) || !isFinite(scale))) {
     console.warn('⚠️ spline invalid output:', { x, y, scale, t });
   }
 
-  return { x: clampedX, y: clampedY, scale: clampedScale };
+  return { x: safeX, y: safeY, scale: clampedScale };
 }
 
 export function interpolateKeyframesSpline(keyframes, time) {
@@ -55,9 +55,9 @@ export function interpolateKeyframesSpline(keyframes, time) {
   const lastTs = getTs(keyframes[keyframes.length - 1]);
   const safeTime = Math.max(firstTs, Math.min(lastTs, time));
 
-    if (DEBUG) {
-    console.log('🧮 Trying to interpolate at time:', safeTime, 'keyframes:', keyframes);
-    }
+    // if (DEBUG) {
+    // console.log('🧮 Trying to interpolate at time:', safeTime, 'keyframes:', keyframes);
+    // }
 
   // Find the current segment
   let i = keyframes.findIndex((kf) => kf.timestamp > safeTime);
@@ -97,9 +97,9 @@ export function interpolateKeyframesSpline(keyframes, time) {
     return { x: 0, y: 0, scale: 1 };
   }
 
-  if (DEBUG) {
-    console.log('🧮 Interpolating at time:', safeTime, '→ result:', result);
-  }
+  // if (DEBUG) {
+  //   console.log('🧮 Interpolating at time:', safeTime, '→ result:', result);
+  // }
 
   return result;
 }
