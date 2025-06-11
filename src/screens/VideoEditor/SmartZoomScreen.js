@@ -48,6 +48,7 @@ const SmartZoomScreen = ({ route, navigation }) => {
           duration={duration}
           onComplete={handleComplete}
           aspectRatio={aspectRatio}
+          existingKeyframes={route.params?.existingKeyframes}
         />
       )}
     </View>

@@ -173,18 +173,23 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   // Handle updated smart zoom keyframes from SmartZoom screen 
   useEffect(() => {
-    if (route.params?.updatedSmartZoom) {
-      const { clipIndex, keyframes } = route.params.updatedSmartZoom;
-      const updatedClips = [...clips];
-      updatedClips[clipIndex] = {
-        ...updatedClips[clipIndex],
-        smartZoomKeyframes: keyframes
-      };
-      setClips(updatedClips);
+    const persistSmartZoom = async () => {
+      if (route.params?.updatedSmartZoom) {
+        const { clipIndex, keyframes } = route.params.updatedSmartZoom;
+        const updatedClips = [...clips];
+        updatedClips[clipIndex] = {
+          ...updatedClips[clipIndex],
+          smartZoomKeyframes: keyframes,
+        };
+        setClips(updatedClips);
 
-      // Optional: Clear the param to prevent double-applying
-      navigation.setParams({ updatedSmartZoom: null });
-    }
+        const updatedProject = { ...project, clips: updatedClips };
+        await updateProject(updatedProject);
+
+        navigation.setParams({ updatedSmartZoom: null });
+      }
+    };
+    persistSmartZoom();
   }, [route.params?.updatedSmartZoom]);
 
   // Ensure currentClip is set from route params if available
@@ -325,6 +330,7 @@ export default function VideoEditorScreen({ route, navigation }) {
         path: uriToPath(clip.uri),
         trimStart: clip.trimStart ?? 0,
         trimEnd: clip.trimEnd ?? clip.duration,
+        smartZoomKeyframes: Array.isArray(clip.smartZoomKeyframes) ? clip.smartZoomKeyframes : null,
       }));
 
       const outputPath = `${RNFS.CachesDirectoryPath}/merged_output_${Date.now()}.mov`; // or .mp4
@@ -396,13 +402,14 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const handleSmartZoom = () => {
     navigation.navigate('SmartZoom', {
-      project: project,
+      project,
       videoUri: currentClip?.uri,
       trimStart,
       trimEnd,
       duration,
-      clipIndex: currentIndex, 
-      aspectRatio, 
+      clipIndex: currentIndex,
+      aspectRatio,
+      existingKeyframes: currentClip?.smartZoomKeyframes ?? null,
     });
   };
 

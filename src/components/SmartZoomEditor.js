@@ -5,7 +5,7 @@ import { useSharedValue, useFrameCallback, runOnJS } from 'react-native-reanimat
 import SmartZoomCanvas from './SmartZoomCanvas';
 import { colors } from '../theme/theme';
 
-const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio }) => {
+const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio, existingKeyframes }) => {
   const keyframes = useSharedValue([]);
   const keyframesShared = useSharedValue([]);
   const currentTime = useSharedValue(trimStart);
@@ -41,11 +41,24 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
   useEffect(() => {
     if (phase === 'setup') {
       const range = trimEnd - trimStart;
-      keyframes.value = [
-        { timestamp: trimStart, x: 0, y: 0, scale: 1.5 },
-        { timestamp: trimStart + range / 2, x: 0, y: 0, scale: 1.5 },
-        { timestamp: trimEnd, x: 0, y: 0, scale: 1.5 },
-      ];
+      let initialKeyframes;
+
+      if (Array.isArray(existingKeyframes) && existingKeyframes.length === 3) {
+        initialKeyframes = existingKeyframes.map((kf) => ({
+          timestamp: Math.max(trimStart, Math.min(kf.timestamp, trimEnd)),
+          x: Number.isFinite(kf.x) ? kf.x : 0,
+          y: Number.isFinite(kf.y) ? kf.y : 0,
+          scale: Number.isFinite(kf.scale) ? kf.scale : 1.5,
+        }));
+      } else {
+        initialKeyframes = [
+          { timestamp: trimStart, x: 0, y: 0, scale: 1.5 },
+          { timestamp: trimStart + range / 2, x: 0, y: 0, scale: 1.5 },
+          { timestamp: trimEnd, x: 0, y: 0, scale: 1.5 },
+        ];
+      }
+
+      keyframes.value = initialKeyframes;
       currentTime.value = trimStart;
       setPlaybackTime(trimStart);
       setPhase('editing');
