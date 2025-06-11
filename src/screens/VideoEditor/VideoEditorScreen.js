@@ -11,6 +11,8 @@ import {
   ScrollView,
   SafeAreaView,
   InteractionManager,
+  Dimensions,
+  rawVideoHeight,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject, getAllProjects } from '../../utils/projectStorage'; 
@@ -44,6 +46,12 @@ function uriToPath(uri) {
   return uri.startsWith('file://') ? uri.replace('file://', '') : uri;
 }
 
+const ASPECT_RATIOS = {
+  PORTRAIT: { label: 'Portrait (9:16)', width: 1080, height: 1920, ratio: 9 / 16 },
+  LANDSCAPE: { label: 'Landscape (16:9)', width: 1920, height: 1080, ratio: 16 / 9 },
+  SQUARE: { label: 'Square (1:1)', width: 1080, height: 1080, ratio: 1 },
+};
+
 export default function VideoEditorScreen({ route, navigation }) {
   const { project, onClipUpdate, currentClip: routeCurrentClip} = route.params ?? {};
   
@@ -74,6 +82,21 @@ export default function VideoEditorScreen({ route, navigation }) {
   const clipId = currentClip?.id || currentClip?.uri;
   const hasSmartZoom = !!currentClip.smartZoomKeyframes?.length;//= clips[currentIndex]?.smartZoomKeyframes != null;
   const [safeUri, setSafeUri] = useState(null);
+  const [aspectRatio, setAspectRatio] = useState(project?.aspectRatio ?? ASPECT_RATIOS.PORTRAIT);
+  const screenWidth = Dimensions.get('window').width;
+  const screenHeight = Dimensions.get('window').height;
+
+  let containerWidth, containerHeight;
+
+  if (aspectRatio.ratio < 1) {
+    // Portrait mode: fix height, calculate width
+    containerHeight = Math.min(screenHeight * 0.4, 400); // max 400px or 40% screen
+    containerWidth = containerHeight * aspectRatio.ratio;
+  } else {
+    // Landscape or Square: fix width, calculate height
+    containerWidth = screenWidth * 0.9;
+    containerHeight = containerWidth / aspectRatio.ratio;
+  }
 
   // Check if clip file exists on disk and persist it if needed
   useEffect(() => {
@@ -208,7 +231,7 @@ export default function VideoEditorScreen({ route, navigation }) {
   };
 
   const saveEditedClipsToProject = async () => {
-    const updatedProject = { ...project, clips: updatedClips };
+    const updatedProject = { ...project, clips: clips, aspectRatio};
     await updateProject(updatedProject);
   };
 
@@ -306,10 +329,16 @@ export default function VideoEditorScreen({ route, navigation }) {
 
       const outputPath = `${RNFS.CachesDirectoryPath}/merged_output_${Date.now()}.mov`; // or .mp4
 
+      const outputResolution = {
+        width: aspectRatio.width,
+        height: aspectRatio.height,
+      };
+
       const mergedVideoPath = await VideoEditorNativeModule.process({
         type: 'merge',
         clips: clipsToMerge,
         outputPath,
+        resolution: outputResolution, // update native module
       });
 
       Alert.alert('Success', 'Merged video exported to Camera Roll');
@@ -373,6 +402,7 @@ export default function VideoEditorScreen({ route, navigation }) {
       trimEnd,
       duration,
       clipIndex: currentIndex, 
+      aspectRatio, 
     });
   };
 
@@ -444,9 +474,19 @@ return (
         </Text>
 
         {/* Video Player */}
-        <Text style={[styles.subtitle]}>TEST 2:</Text>
         <View style={styles.videoWrapper}>
-          <Animated.View style={[styles.videoZoomContainer]}>
+          <Animated.View
+              style={[
+                styles.videoContainerBase,
+                {
+                  width: containerWidth,
+                  height: containerHeight, 
+                  alignSelf: 'center',
+                  overflow: 'hidden',
+                  borderRadius: 8,
+                },
+              ]}
+            >
             {safeUri && (
               <Video
                 ref={videoRef}
@@ -454,7 +494,7 @@ return (
                 onLoad={onLoad}
                 onError={onError}
                 onProgress={onProgress}
-                style={styles.video}
+                style={StyleSheet.absoluteFill}//{styles.video}
                 resizeMode="cover"
                 controls={false}
                 paused={paused}
@@ -462,17 +502,33 @@ return (
             )}
           </Animated.View>
 
-          <View style={styles.playbackControls}>
-            <TouchableOpacity onPress={togglePlayPause} style={styles.playPauseButton}>
-              <Text style={styles.playPauseText}>
-                {paused ? '▶' : '⏸︎'}
-              </Text>
-            </TouchableOpacity>
+          {/* Overlayed Controls */}
+          <View style={styles.controlsOverlayContainer}>
+            {/* Progress Bar */}
+            <View style={styles.progressBarBackground}>
+              <View
+                style={[
+                  styles.progressBarFill,
+                  {
+                    width: `${(currentTime / trimEnd) * 100}%`,
+                  },
+                ]}
+              />
+            </View>
 
-            <Text style={styles.playbackTime}>
-              {formatTime(currentTime)} / {formatTime(trimEnd)}
-            </Text>
-          </View>
+            {/* Buttons */}
+            <View style={styles.controlsRow}>
+              <TouchableOpacity onPress={togglePlayPause} style={styles.playPauseButton}>
+                <Text style={styles.playPauseText}>
+                  {paused ? '▶' : '⏸︎'}
+                </Text>
+              </TouchableOpacity>
+
+              <Text style={styles.playbackTime}>
+                {formatTime(currentTime)} / {formatTime(trimEnd)}
+              </Text>
+            </View>
+          </View> 
         </View>
 
         {/* Trimming Controls */}
@@ -492,9 +548,37 @@ return (
           />
         )}
 
+        {/* Aspect Ratio */}
+        <View style={styles.toggleRow}>
+          <Text style={[styles.subtitle]}>Aspect Ratio:</Text>
+        </View>
+        <View style={styles.aspectRatioList}>
+          {Object.entries(ASPECT_RATIOS).map(([key, option]) => (
+            <TouchableOpacity
+              key={key}
+              style={[
+                styles.aspectRatioButton,
+                aspectRatio.label === option.label && styles.aspectRatioButtonSelected,
+              ]}
+              onPress={() => {
+                setAspectRatio(option);
+              }}
+            >
+              <Text
+                style={[
+                  styles.aspectRatioButtonText,
+                  aspectRatio.label === option.label && styles.aspectRatioButtonTextSelected,
+                ]}
+              >
+                {option.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {/* Categories */}
         <View style={styles.toggleRow}>
-          <Text style={[styles.subtitle, ]}>Select Category:</Text>
+          <Text style={[styles.subtitle]}>Select Category:</Text>
         </View>
         <View style={styles.categoryList}>
           {allCategories.map((cat) => {
@@ -665,14 +749,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  inner: {
-    padding: 16,
-  },
-  label: {
-    fontSize: 16,
-    marginBottom: 8,
-    color: colors.textPrimary,
-  },
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
@@ -683,13 +759,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 12,
     color: colors.textPrimary,
-  },
-  videoContainer: {
-    height: 200,
-    backgroundColor: colors.surface,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 12,
   },
   subtitle: {
     fontSize: 14,
@@ -702,6 +771,7 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 8,
     marginBottom: 8,
+    marginTop: 8,
   },
   categoryWrapper: {
     position: 'relative',
@@ -746,22 +816,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 14,
   },
-  navButtonsFixed: {
-    position: 'absolute',
-    bottom: 16,
-    left: 16,
-    right: 16,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    backgroundColor: colors.surface,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 6,
-    elevation: 4,
-  },
   modalOverlay: {
     flex: 1,
     backgroundColor: colors.overlay,
@@ -784,105 +838,19 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     backgroundColor: colors.inputBackground,
   },
-  video: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: colors.background,
-  },
-  inputRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginVertical: 16,
-  },
-  inputGroup: {
-    flex: 1,
-    marginRight: 8,
-  },
-  heading: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    marginBottom: 12,
-    color: colors.textPrimary,
-  },
-  trimControls: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginVertical: 16,
-  },
-  trimInput: {
-    flex: 1,
-    marginHorizontal: 8,
-  },
   videoWrapper: {
     position: 'relative',
     width: '100%',
-    aspectRatio: 16 / 9,
     backgroundColor: colors.background,
     alignSelf: 'center',
-  },
-  playbackControls: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.overlay,
-    paddingVertical: 2,
-    paddingHorizontal: 12,
-    // borderBottomLeftRadius: 12,
-    // borderBottomRightRadius: 12,
-  },
-  playPauseButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.125)', // semi-transparent white (like '#ffffff20')
-    paddingVertical: 2,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-  },
-  playPauseText: {
-    color: colors.textPrimary,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  playbackTime: {
-    color: colors.textPrimary,
-    fontSize: 10,
-    fontVariant: ['tabular-nums'],
-  },
-  iconButton: {
-    borderRadius: 30,
-    overflow: 'hidden',
-  },
-  iconBackground: {
-    backgroundColor: colors.background,
-    borderRadius: 20,
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+    marginBottom: 5,
   },
   exportControls: { 
     marginTop: 20, 
     gap: 10 
   },
-  marker: {
-    position: 'absolute',
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: 'red',
-    borderWidth: 2,
-    borderColor: 'white',
-  },
-  videoZoomContainer: {
-    width: '100%',
-    height: '100%',
-    overflow: 'hidden',
-    backgroundColor: 'black',
-  },
   toggleRow: {
-    marginTop: 20,
+    marginTop: 15,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -893,14 +861,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     borderRadius: 8,
   },
-
   primaryButton: {
     backgroundColor: colors.accent1,
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 8,
   },
-
   secondaryButton: {
     backgroundColor: colors.surface,
     borderWidth: 1,
@@ -910,15 +876,82 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginLeft: 8,
   },
-
   actionGroup: {
     flexDirection: 'row',
     alignItems: 'center',
   },
-    
   buttonText: {
     color: colors.textPrimary,
     fontWeight: '600',
   },
-
+  aspectRatioList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 5,
+  },
+  aspectRatioButton: {
+    backgroundColor: colors.surface,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    margin: 4,
+    marginBottom: 5,
+  },
+  aspectRatioButtonSelected: {
+    backgroundColor: colors.accent1,
+  },
+  aspectRatioButtonText: {
+    color: colors.textPrimary,
+    fontSize: 12,
+  },
+  aspectRatioButtonTextSelected: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
+  videoContainerBase: {
+    backgroundColor: 'black',
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  playPauseButton: {
+      backgroundColor: 'rgba(255, 255, 255, 0.8)',
+      borderRadius: 10,
+      padding: 4,
+    },
+  playPauseText: {
+      fontSize: 10,
+      color: 'black',
+    },
+  playbackTime: {
+      color: 'white',
+      fontSize: 10,
+    },
+  controlsOverlayContainer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 8,
+    paddingBottom: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    zIndex: 1,
+  },
+  controlsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 6,
+  },
+  progressBarBackground: {
+    height: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',//'rgba(255, 255, 255, 0.3)',
+    borderRadius: 2,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  progressBarFill: {
+    height: 4,
+    backgroundColor: "white", //'#fff',
+    borderRadius: 2,
+  },
 });

@@ -3,10 +3,9 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, Button, StyleSheet } from 'react-native';
 import { useSharedValue, useFrameCallback, runOnJS } from 'react-native-reanimated';
 import SmartZoomCanvas from './SmartZoomCanvas';
+import { colors } from '../theme/theme';
 
-const OUTPUT_ASPECT_RATIO = 9 / 16;
-
-const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete }) => {
+const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio }) => {
   const keyframes = useSharedValue([]);
   const keyframesShared = useSharedValue([]);
   const currentTime = useSharedValue(trimStart);
@@ -19,6 +18,7 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete }) => {
   const [paused, setPaused] = useState(true);
   const [canRender, setCanRender] = useState(false);
   const videoRef = useRef(null);
+  const OUTPUT_ASPECT_RATIO = aspectRatio?.ratio ?? (9 / 16); 
 
   const getTransformDefaults = (kf) => ({
     timestamp: Number.isFinite(kf.timestamp) ? kf.timestamp : trimStart,
@@ -204,32 +204,42 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete }) => {
   return (
     <View style={styles.container}>
       <Text style={styles.header}>Smart Zoom Editor</Text>
-
-      <View style={styles.videoContainer} onLayout={handleLayout}>
-        {shouldRenderCanvas && (
-          <SmartZoomCanvas
-            clip={{ uri: videoUri || '' }}
-            zoom={current.scale}
-            x={current.x}
-            y={current.y}
-            onChange={handleChange}
-            videoLayout={videoLayout}
-            paused={paused}
-            repeat={false} 
-            isPreview={isPreview}
-            setPlaybackTime={setPlaybackTime}
-            videoRef={videoRef}
-            onEnd={handleEnd}
-            trimStart={trimStart}
-            trimEnd={trimEnd}
-            keyframes={isPreview.value ? keyframesShared : keyframes}
-            currentTime={currentTime}
-            onLoad={onVideoLoad}
-            currentKeyframeIndex={currentKeyframeIndexShared}
-            setPaused={setPaused}
-          />
-        )}
-      </View>
+        <View
+          style={[
+            styles.videoFrameWrapper,
+            {
+              aspectRatio: OUTPUT_ASPECT_RATIO,
+              width: '90%',
+              maxWidth: 360, 
+              alignSelf: 'center',
+            },
+          ]}
+          onLayout={handleLayout}
+        >
+          {shouldRenderCanvas && (
+            <SmartZoomCanvas
+              clip={{ uri: videoUri || '' }}
+              zoom={current.scale}
+              x={current.x}
+              y={current.y}
+              onChange={handleChange}
+              videoLayout={videoLayout}
+              paused={paused}
+              repeat={false} 
+              isPreview={isPreview}
+              setPlaybackTime={setPlaybackTime}
+              videoRef={videoRef}
+              onEnd={handleEnd}
+              trimStart={trimStart}
+              trimEnd={trimEnd}
+              keyframes={isPreview.value ? keyframesShared : keyframes}
+              currentTime={currentTime}
+              onLoad={onVideoLoad}
+              currentKeyframeIndex={currentKeyframeIndexShared}
+              setPaused={setPaused}
+            />
+          )}
+        </View>
 
       {readyToEdit && !isPreview.value && !previewFinished && (
         <View style={styles.controls}>
@@ -280,17 +290,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginVertical: 10,
   },
-  videoContainer: {
-    alignSelf: 'center',
-    width: '90%',
-    aspectRatio: OUTPUT_ASPECT_RATIO,
-    backgroundColor: 'black',
-    overflow: 'hidden',
-    borderColor: 'white',
-    borderWidth: 1,
-    borderRadius: 8,
-    marginVertical: 10,
-  },
   controls: {
     padding: 20,
     flexDirection: 'row',
@@ -299,6 +298,14 @@ const styles = StyleSheet.create({
   stepLabel: {
     color: 'white',
     fontSize: 16,
+  },
+  videoFrameWrapper: {
+    borderWidth: 2,
+    borderColor: colors.accent1,
+    backgroundColor: 'black',
+    overflow: 'hidden',
+    borderRadius: 8,
+    marginVertical: 12,
   },
 });
 

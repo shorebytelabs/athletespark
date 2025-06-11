@@ -3,7 +3,7 @@ import { View, StyleSheet, Alert } from 'react-native';
 import SmartZoomEditor from '../../components/SmartZoomEditor';
 
 const SmartZoomScreen = ({ route, navigation }) => {
-  const { videoUri, trimStart, trimEnd, duration, clipIndex, project } = route.params || {};
+  const { videoUri, trimStart, trimEnd, duration, clipIndex, project, aspectRatio } = route.params || {};
   const [validData, setValidData] = useState(false);
 
   useEffect(() => {
@@ -12,7 +12,9 @@ const SmartZoomScreen = ({ route, navigation }) => {
       typeof trimStart === 'number' &&
       typeof trimEnd === 'number' &&
       typeof duration === 'number' &&
-      typeof clipIndex === 'number';
+      typeof clipIndex === 'number' &&
+      typeof aspectRatio ===  'object' && aspectRatio !== null &&
+      typeof aspectRatio.ratio === 'number';
 
     if (!isValid) {
       Alert.alert('Missing data', 'No clip selected or clip is missing required information.');
@@ -45,6 +47,7 @@ const SmartZoomScreen = ({ route, navigation }) => {
           trimEnd={trimEnd}
           duration={duration}
           onComplete={handleComplete}
+          aspectRatio={aspectRatio}
         />
       )}
     </View>
