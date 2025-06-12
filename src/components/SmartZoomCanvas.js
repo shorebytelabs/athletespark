@@ -30,6 +30,7 @@ const SmartZoomCanvas = ({
   onChange,
   currentKeyframeIndex,
   setPaused,
+  previewSessionId,
 }) => {
   const offsetX = useSharedValue(x);
   const offsetY = useSharedValue(y);
@@ -172,6 +173,7 @@ const SmartZoomCanvas = ({
     <GestureDetector gesture={composedGesture}>
       <Animated.View style={[{ flex: 1 }, transformStyle]}>
         <Video
+          key={`canvas-${previewSessionId}`} 
           ref={videoRef}
           source={{ uri: clip.uri }}
           paused={paused}
@@ -180,7 +182,7 @@ const SmartZoomCanvas = ({
           resizeMode="contain"
           style={{ width: '100%', height: '100%' }}
           repeat
-          muted
+          muted={!isPreview.value}
           onProgress={({ currentTime: time }) => {
             if (time >= trimEnd) {
               setPaused(true); // pause the React state

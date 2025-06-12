@@ -19,6 +19,7 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
   const [canRender, setCanRender] = useState(false);
   const videoRef = useRef(null);
   const OUTPUT_ASPECT_RATIO = aspectRatio?.ratio ?? (9 / 16); 
+  const [previewSessionId, setPreviewSessionId] = useState(0);
 
   const getTransformDefaults = (kf) => ({
     timestamp: Number.isFinite(kf.timestamp) ? kf.timestamp : trimStart,
@@ -116,8 +117,10 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
       setPaused(true);
       currentTime.value = trimEnd;
       videoRef.current?.seek(trimEnd);
+
+      // Exit preview mode entirely
       isPreview.value = false;
-      setPreviewFinished(true); 
+      setPreviewFinished(true);
     }
   }, [playbackTime, trimEnd]);
 
@@ -205,12 +208,20 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
     console.log('✅ Cleaned keyframes for preview:', cleaned);
 
     isPreview.value = true;
-    setPaused(false);
-    currentTime.value = trimStart;
-    setPlaybackTime(trimStart);
+    setPreviewFinished(false);
 
+    // Step 1: Seek to beginning
     requestAnimationFrame(() => {
       videoRef.current?.seek(trimStart);
+
+      // Step 2: Add delay before unpausing to let audio & video flush
+      setTimeout(() => {
+        currentTime.value = trimStart;
+        setPlaybackTime(trimStart);
+        setPaused(false);
+      }, 100); // <-- 100ms delay (tweakable)
+
+      setPreviewSessionId((id) => id + 1);
     });
   }, [keyframes.value, getTransformDefaults, trimStart, trimEnd]);
 
@@ -271,7 +282,6 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
                 setCurrentKeyframeIndex((i) => i + 1);
               } else {
                 goToPreview();
-                setPreviewFinished(false); // reset when starting preview
               }
             }}
           />
@@ -279,7 +289,29 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
       )}
 
       {readyToEdit && (isPreview.value || previewFinished) && (
-        <View style={styles.controls}>
+      <View style={styles.controls}>
+        <Button
+          title={paused ? '▶️ Play' : '⏸️ Pause'}
+          onPress={() => {
+          if (paused) {
+            console.log("previewFinished: ",previewFinished, "isPreview.value: ",isPreview.value)
+            if (previewFinished || !isPreview.value) {
+              goToPreview(); // Re-run preview mode fully with smooth startup
+            } else {
+              // Mid-preview resume
+              requestAnimationFrame(() => {
+                videoRef.current?.seek(currentTime.value);
+                requestAnimationFrame(() => {
+                  setPaused(false);
+                });
+              });
+            }
+          } else {
+            setPaused(true);
+          }
+        }}
+        />
+        {!isPreview.value && !previewFinished && (
           <Button
             title="Preview ▶️"
             onPress={() => {
@@ -287,9 +319,10 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
               setPreviewFinished(false);
             }}
           />
-          <Button title="Finish Smart Zoom" onPress={finishZoom} />
-        </View>
-      )}
+        )}
+        <Button title="Finish Smart Zoom" onPress={finishZoom} />
+      </View>
+    )}
     </View>
   );
 };
