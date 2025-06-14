@@ -12,12 +12,10 @@ import {
   SafeAreaView,
   InteractionManager,
   Dimensions,
-  rawVideoHeight,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { updateProject, getAllProjects } from '../../utils/projectStorage'; 
 import { interpolateKeyframesSpline } from '../../utils/interpolateKeyframesSpline';
-import Video from 'react-native-video';
 import TrimSlider from '../../components/TrimSlider'; 
 import { saveTrimInfo, loadTrimInfo } from '../../utils/trimStorage';
 import { saveToPersistentStorage } from '../../utils/fileStorage';
@@ -25,7 +23,8 @@ import { colors } from '../../theme/theme';
 import ClipNavigation from '../../navigation/ClipNavigation';
 import RNFS from 'react-native-fs';
 import VideoEditorNativeModule from '../../nativemodules/VideoEditorNativeModule';
-import Animated from 'react-native-reanimated';
+import Animated, { useSharedValue } from 'react-native-reanimated';
+import VideoPlaybackCanvas from '../../components/VideoPlaybackCanvas';
 
 const defaultCategories = [
   'Goal',
@@ -72,7 +71,7 @@ export default function VideoEditorScreen({ route, navigation }) {
   const [trimEnd, setTrimEnd] = useState(0);
   const [duration, setDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const [paused, setPaused] = useState(false);
+  const [paused, setPaused] = useState(true);
   const [loopTrimPreview, setLoopTrimPreview] = useState(true);
 
   const [isBatchExporting, setIsBatchExporting] = useState(false);
@@ -85,6 +84,8 @@ export default function VideoEditorScreen({ route, navigation }) {
   const [aspectRatio, setAspectRatio] = useState(project?.aspectRatio ?? ASPECT_RATIOS.PORTRAIT);
   const screenWidth = Dimensions.get('window').width;
   const screenHeight = Dimensions.get('window').height;
+  const currentTimeShared = useSharedValue(trimStart);
+  const videoLayoutShared = useSharedValue(null);
 
   let containerWidth, containerHeight;
 
@@ -97,6 +98,10 @@ export default function VideoEditorScreen({ route, navigation }) {
     containerWidth = screenWidth * 0.9;
     containerHeight = containerWidth / aspectRatio.ratio;
   }
+
+  useEffect(() => {
+    currentTimeShared.value = currentTime;
+  }, [currentTime]);
 
   // Check if clip file exists on disk and persist it if needed
   useEffect(() => {
@@ -139,12 +144,14 @@ export default function VideoEditorScreen({ route, navigation }) {
     async function fetchTrim() {
       if (projectId && clipId) {
         const savedTrim = await loadTrimInfo(projectId, clipId);
-        if (savedTrim) {
-          setTrimStart(savedTrim.startTime ?? 0);
-          setTrimEnd(savedTrim.endTime ?? duration); // fallback to duration
-        } else {
-          setTrimStart(0);
-          setTrimEnd(duration);
+        if (duration > 0) {
+          if (savedTrim && Number.isFinite(savedTrim.startTime) && Number.isFinite(savedTrim.endTime)) {
+            setTrimStart(savedTrim.startTime);
+            setTrimEnd(savedTrim.endTime);
+          } else {
+            setTrimStart(0);
+            setTrimEnd(duration);
+          }
         }
       }
     }
@@ -355,10 +362,49 @@ export default function VideoEditorScreen({ route, navigation }) {
     }
   };
 
+  const keyframesShared = useRef(useSharedValue([])).current;
+
+  useEffect(() => {
+    if (Array.isArray(currentClip?.smartZoomKeyframes)) {
+      keyframesShared.value = currentClip.smartZoomKeyframes;
+    }
+  }, [currentClip?.smartZoomKeyframes]);
+
   const onLoad = (data) => {
-    setDuration(data.duration);
-    setTrimEnd(Math.min(data.duration, trimEnd || data.duration));
-    videoRef.current?.seek(trimStart);
+    console.log('🎞 onLoad triggered with data:', data);
+
+    const loadedDuration = data?.duration;
+    if (!Number.isFinite(loadedDuration) || loadedDuration <= 0) {
+      console.warn('⚠️ Invalid or missing duration in onLoad:', loadedDuration);
+      return;
+    }
+
+    console.log('✅ Valid duration loaded:', loadedDuration);
+    // Proceed with trim setup
+    setDuration(loadedDuration);
+    setTrimStart(0);
+    setTrimEnd(loadedDuration);
+    currentTimeShared.value = 0;
+    setCurrentTime(0);
+    setPaused(false);
+    videoRef.current?.seek(0);
+
+    // Fetch trim info
+    if (projectId && clipId) {
+      loadTrimInfo(projectId, clipId).then((savedTrim) => {
+        if (
+          savedTrim &&
+          Number.isFinite(savedTrim.startTime) &&
+          Number.isFinite(savedTrim.endTime)
+        ) {
+          setTrimStart(savedTrim.startTime);
+          setTrimEnd(savedTrim.endTime);
+          currentTimeShared.value = savedTrim.startTime;
+          setCurrentTime(savedTrim.startTime);
+          videoRef.current?.seek(savedTrim.startTime);
+        }
+      });
+    }
   };
 
   const onError = (error) => {
@@ -379,6 +425,7 @@ export default function VideoEditorScreen({ route, navigation }) {
     }
 
     setCurrentTime(current);
+    currentTimeShared.value = current;
   };
 
   const togglePlayPause = () => {
@@ -401,6 +448,8 @@ export default function VideoEditorScreen({ route, navigation }) {
   };
 
   const handleSmartZoom = () => {
+    console.log('[Navigate to SmartZoom]', { trimStart, trimEnd, duration });
+
     navigation.navigate('SmartZoom', {
       project,
       videoUri: currentClip?.uri,
@@ -495,16 +544,34 @@ return (
               ]}
             >
             {safeUri && (
-              <Video
-                ref={videoRef}
-                source={{ uri: safeUri }}
-                onLoad={onLoad}
-                onError={onError}
-                onProgress={onProgress}
-                style={StyleSheet.absoluteFill}//{styles.video}
-                resizeMode="cover"
-                controls={false}
+              // <Video
+              //   ref={videoRef}
+              //   source={{ uri: safeUri }}
+              //   onLoad={onLoad}
+              //   onError={onError}
+              //   onProgress={onProgress}
+              //   style={StyleSheet.absoluteFill}//{styles.video}
+              //   resizeMode="cover"
+              //   controls={false}
+              //   paused={paused}
+              // />
+              <VideoPlaybackCanvas
+                clip={{ uri: currentClip?.uri }}
+                zoom={0}
+                x={0}
+                y={0}
+                isPreview={true}
+                keyframes={keyframesShared}
+                currentTime={currentTimeShared}
+                trimStart={trimStart}
+                trimEnd={trimEnd}
                 paused={paused}
+                setPaused={setPaused} 
+                setPlaybackTime={setCurrentTime}
+                videoLayout={videoLayoutShared}
+                videoRef={videoRef}
+                previewSessionId={clipId}
+                onLoad={onLoad}
               />
             )}
           </Animated.View>
@@ -542,7 +609,8 @@ return (
         <View style={styles.toggleRow}>
           <Text style={[styles.subtitle]}>Trim:</Text>
         </View>
-        {duration > 0 && (
+
+        {Number.isFinite(duration) && duration > 0 && trimEnd > trimStart && (
           <TrimSlider
             duration={duration}
             trimStart={trimStart}

@@ -2,7 +2,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, Button, StyleSheet } from 'react-native';
 import { useSharedValue, useFrameCallback, runOnJS } from 'react-native-reanimated';
-import SmartZoomCanvas from './SmartZoomCanvas';
+import VideoPlaybackCanvas from './VideoPlaybackCanvas';
 import { colors } from '../theme/theme';
 
 const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio, existingKeyframes }) => {
@@ -241,7 +241,7 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
           onLayout={handleLayout}
         >
           {shouldRenderCanvas && (
-            <SmartZoomCanvas
+            <VideoPlaybackCanvas
               clip={{ uri: videoUri || '' }}
               zoom={current.scale}
               x={current.x}

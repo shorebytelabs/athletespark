@@ -11,7 +11,7 @@ import Animated, {
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { interpolateKeyframesSpline } from '../utils/interpolateKeyframesSpline';
 
-const SmartZoomCanvas = ({
+const VideoPlaybackCanvas = ({
   clip,
   zoom,
   x,
@@ -84,7 +84,14 @@ const SmartZoomCanvas = ({
 
   useAnimatedReaction(
     () => {
-      if (!editingMode.value) return null;
+      if (
+        !editingMode.value ||
+        !currentKeyframeIndex ||
+        !('value' in currentKeyframeIndex)
+      ) {
+        return null;
+      }
+
       return {
         x: offsetX.value,
         y: offsetY.value,
@@ -113,7 +120,7 @@ const SmartZoomCanvas = ({
   useAnimatedReaction(
     () => currentKeyframeIndex?.value,
     (index) => {
-      if (
+      if ( 
         !isPreview.value &&
         Array.isArray(keyframes?.value) &&
         keyframes.value[index]
@@ -127,14 +134,13 @@ const SmartZoomCanvas = ({
           offsetX.value = kf.x;
           offsetY.value = kf.y;
           scale.value = kf.scale;
-          // console.log('🔁 Synced gesture values to keyframe', index + 1, kf);
         }
       }
     },
     [keyframes, currentKeyframeIndex, isPreview]
   );
 
-  const transformStyle = useAnimatedStyle(() => {
+  const transformStyle = useAnimatedStyle(() => { 
     const layout = videoLayout?.value;
     if (!layout) return {};
 
@@ -144,7 +150,9 @@ const SmartZoomCanvas = ({
     if (isPreview.value && keyframes?.value?.length >= 3) {
       const t = currentTime.value;
       const interpolated = interpolateKeyframesSpline(keyframes.value, t);
-      // console.log('🎥 Preview t:', t, 'Interpolated:', interpolated);
+      
+      console.log('🎯 VideoEditorScreen Smart Zoom @', t, interpolated);
+      
       if (interpolated) {
         tx = interpolated.x;
         ty = interpolated.y;
@@ -182,10 +190,10 @@ const SmartZoomCanvas = ({
           resizeMode="contain"
           style={{ width: '100%', height: '100%' }}
           repeat
-          muted={!isPreview.value}
+          // muted={!isPreview.value}
           onProgress={({ currentTime: time }) => {
             if (time >= trimEnd) {
-              setPaused(true); // pause the React state
+              setPaused(true);
               currentTime.value = trimEnd;
               setPlaybackTime(trimEnd);
               videoRef.current?.seek(trimEnd);
@@ -200,4 +208,4 @@ const SmartZoomCanvas = ({
   );
 };
 
-export default SmartZoomCanvas;
+export default VideoPlaybackCanvas;
