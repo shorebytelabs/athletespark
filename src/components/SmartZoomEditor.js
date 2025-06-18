@@ -4,8 +4,9 @@ import { View, Text, Button, StyleSheet } from 'react-native';
 import { useSharedValue, useFrameCallback, runOnJS } from 'react-native-reanimated';
 import VideoPlaybackCanvas from './VideoPlaybackCanvas';
 import { colors } from '../theme/theme';
+import { useNavigation, useRoute } from '@react-navigation/native'; 
 
-const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio, existingKeyframes }) => {
+const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio, existingKeyframes, project }) => {
   const keyframes = useSharedValue([]);
   const keyframesShared = useSharedValue([]);
   const currentTime = useSharedValue(trimStart);
@@ -20,6 +21,8 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
   const videoRef = useRef(null);
   const OUTPUT_ASPECT_RATIO = aspectRatio?.ratio ?? (9 / 16); 
   const [previewSessionId, setPreviewSessionId] = useState(0);
+  const videoNaturalWidthShared = useSharedValue(null);
+  const videoNaturalHeightShared = useSharedValue(null);
 
   const getTransformDefaults = (kf) => ({
     timestamp: Number.isFinite(kf.timestamp) ? kf.timestamp : trimStart,
@@ -34,6 +37,9 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
   const readyToEdit = keyframes.value.length === 3 && Number.isFinite(current.timestamp);
   const currentKeyframeIndexShared = useSharedValue(0);
   const [previewFinished, setPreviewFinished] = useState(false);
+  const navigation = useNavigation();
+  const route = useRoute();
+  const clipIndex = route.params?.clipIndex ?? 0; 
 
   useEffect(() => {
     currentKeyframeIndexShared.value = currentKeyframeIndex;
@@ -137,9 +143,18 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
       timestamp: Math.max(trimStart, Math.min(kf.timestamp, trimEnd)),
     }));
     keyframesShared.value = cleaned;
+
     console.log('✅ Cleaned keyframes for preview:', cleaned);
-    onComplete?.(cleaned);
-  }, [onComplete, keyframes.value, getTransformDefaults, trimStart, trimEnd]);
+
+    // ⬇️ Instead of calling onComplete, navigate back with data
+    navigation.navigate('VideoEditor', {
+      project,
+      updatedSmartZoom: {
+        clipIndex,
+        keyframes: cleaned,
+      },
+    });
+  }, [navigation, route, keyframes.value, getTransformDefaults, trimStart, trimEnd]);
 
   const handleLayout = (event) => {
     const { width, height } = event.nativeEvent.layout;
@@ -184,8 +199,22 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
   ((isPreview.value && hasValidPreviewData) ||
     (!isPreview.value && readyToEdit));
 
-  const onVideoLoad = useCallback(() => {
+  const onVideoLoad = useCallback((data) => {
     console.log('🎞 Video loaded');
+
+    const naturalWidth = data?.naturalSize?.width;
+    const naturalHeight = data?.naturalSize?.height;
+
+    if (Number.isFinite(naturalWidth) && Number.isFinite(naturalHeight)) {
+      videoNaturalWidthShared.value = naturalWidth;
+      videoNaturalHeightShared.value = naturalHeight;
+      console.log('📏 Natural size (SmartZoomEditor):', { naturalWidth, naturalHeight });
+    } else {
+      console.warn('⚠️ Missing or invalid natural size in SmartZoomEditor');
+      videoNaturalWidthShared.value = 1080;
+      videoNaturalHeightShared.value = 1920;
+    }
+
     const seekTo = isPreview.value ? trimStart : current.timestamp;
     requestAnimationFrame(() => videoRef.current?.seek(seekTo));
   }, [isPreview.value, current.timestamp, trimStart]);
@@ -262,6 +291,8 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
               currentKeyframeIndex={currentKeyframeIndexShared}
               setPaused={setPaused}
               resizeMode="contain"
+              videoNaturalWidthShared={videoNaturalWidthShared}
+              videoNaturalHeightShared={videoNaturalHeightShared}
             />
           )}
         </View>

@@ -32,6 +32,8 @@ const VideoPlaybackCanvas = ({
   setPaused,
   previewSessionId,
   resizeMode,
+  videoNaturalWidthShared,
+  videoNaturalHeightShared,
 }) => {
   const offsetX = useSharedValue(x);
   const offsetY = useSharedValue(y);
@@ -141,31 +143,60 @@ const VideoPlaybackCanvas = ({
     [keyframes, currentKeyframeIndex, isPreview]
   );
 
-  const transformStyle = useAnimatedStyle(() => { 
+  const transformStyle = useAnimatedStyle(() => {
     const layout = videoLayout?.value;
-    if (!layout) return {};
+    const naturalW = videoNaturalWidthShared?.value;
+    const naturalH = videoNaturalHeightShared?.value;
+
+    if (!layout || !naturalW || !naturalH || naturalW <= 0 || naturalH <= 0) {
+      return {};
+    }
 
     const { frameWidth, frameHeight } = layout;
+    const fitScale = Math.max(frameWidth / naturalW, frameHeight / naturalH);
+
     let tx = 0, ty = 0, sc = 1;
 
-    if (isPreview.value && keyframes?.value?.length >= 3) {
+    const isPreviewing = isPreview?.value;
+    const hasValidKeyframes = Array.isArray(keyframes?.value) && keyframes.value.length >= 3;
+
+    // 🛑 Fallback for non-smart-zoom clips (or bad data)
+    if (isPreviewing && !hasValidKeyframes) {
+      return {
+        transform: [
+          { translateX: 0 },
+          { translateY: 0 },
+          { scale: 1 },
+        ],
+        width: frameWidth,
+        height: frameHeight,
+      };
+    }
+
+    if (isPreviewing && hasValidKeyframes) {
       const t = currentTime.value;
       const interpolated = interpolateKeyframesSpline(keyframes.value, t);
-      
-      console.log('🎯 VideoEditorScreen Smart Zoom @', t, interpolated);
-      
+
+      //console.log('🎯 Smart Zoom Preview @', t, interpolated);
+
       if (interpolated) {
-        tx = interpolated.x;
-        ty = interpolated.y;
+        tx = interpolated.x * fitScale;
+        ty = interpolated.y * fitScale;
         sc = interpolated.scale;
       }
     } else {
-      tx = offsetX.value;
-      ty = offsetY.value;
+      // gesture editing mode
+      tx = offsetX.value * fitScale;
+      ty = offsetY.value * fitScale;
       sc = scale.value;
     }
 
-    // console.log('🎯 transformStyle:', { tx, ty, sc });
+    // console.log('🧪 transformStyle ctx:', {
+    //   isPreviewing,
+    //   hasValidKeyframes,
+    //   currentTime: currentTime.value,
+    //   keyframes: keyframes?.value,
+    // });
 
     return {
       transform: [
@@ -173,14 +204,19 @@ const VideoPlaybackCanvas = ({
         { translateY: -ty },
         { scale: Number.isFinite(sc) ? sc : 1 },
       ],
-      width: frameWidth,
-      height: frameHeight,
+      width: naturalW * fitScale,
+      height: naturalH * fitScale,
     };
   });
 
   return (
     <GestureDetector gesture={composedGesture}>
-      <Animated.View style={[{ flex: 1 }, transformStyle]}>
+      <Animated.View
+        style={[
+          StyleSheet.absoluteFill,
+          transformStyle,
+        ]}
+      >
         <Video
           key={`canvas-${previewSessionId}`} 
           ref={videoRef}
@@ -191,7 +227,6 @@ const VideoPlaybackCanvas = ({
           resizeMode={resizeMode}
           style={{ width: '100%', height: '100%' }}
           repeat
-          // muted={!isPreview.value}
           onProgress={({ currentTime: time }) => {
             if (time >= trimEnd) {
               setPaused(true);

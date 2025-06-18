@@ -86,6 +86,9 @@ export default function VideoEditorScreen({ route, navigation }) {
   const screenHeight = Dimensions.get('window').height;
   const currentTimeShared = useSharedValue(trimStart);
   const videoLayoutShared = useSharedValue(null);
+  const videoNaturalWidthShared = useSharedValue(null);
+  const videoNaturalHeightShared = useSharedValue(null);
+  const isPreview = useSharedValue(true);
 
   let containerWidth, containerHeight;
 
@@ -178,6 +181,17 @@ export default function VideoEditorScreen({ route, navigation }) {
     }
   }, [trimStart, trimEnd, duration]);
 
+  useEffect(() => {
+    const current = clips[currentIndex];
+    if (current?.smartZoomKeyframes?.length >= 3) {
+      keyframesShared.value = current.smartZoomKeyframes;
+      console.log('✅ Loaded keyframes for playback:', current.smartZoomKeyframes);
+    } else {
+      keyframesShared.value = [];
+      console.log('ℹ️ No keyframes found for current clip');
+    }
+  }, [currentIndex, clips]);
+
   // Handle updated smart zoom keyframes from SmartZoom screen 
   useEffect(() => {
     const persistSmartZoom = async () => {
@@ -193,11 +207,19 @@ export default function VideoEditorScreen({ route, navigation }) {
         const updatedProject = { ...project, clips: updatedClips };
         await updateProject(updatedProject);
 
+        console.log("persistSmartZoom - keyframes",keyframes)
+
+        if (clipIndex === currentIndex) {
+          keyframesShared.value = keyframes;
+
+          console.log("persistSmartZoom - keyframesShared.value",keyframesShared.value)
+        }
+
         navigation.setParams({ updatedSmartZoom: null });
       }
     };
     persistSmartZoom();
-  }, [route.params?.updatedSmartZoom]);
+  }, [route.params?.updatedSmartZoom, currentIndex]);
 
   // Ensure currentClip is set from route params if available
   useEffect(() => {
@@ -373,6 +395,21 @@ export default function VideoEditorScreen({ route, navigation }) {
   const onLoad = (data) => {
     console.log('🎞 onLoad triggered with data:', data);
 
+    // Extract and assign natural size
+    const naturalWidth = data?.naturalSize?.width;
+    const naturalHeight = data?.naturalSize?.height;
+
+    if (Number.isFinite(naturalWidth) && Number.isFinite(naturalHeight)) {
+      videoNaturalWidthShared.value = naturalWidth;
+      videoNaturalHeightShared.value = naturalHeight;
+      console.log('📏 Natural size:', { naturalWidth, naturalHeight });
+    } else {
+      console.warn('⚠️ Missing or invalid natural size. Falling back to default 1080x1920');
+      videoNaturalWidthShared.value = 1080;
+      videoNaturalHeightShared.value = 1920;
+    }
+
+    // Extract duration
     const loadedDuration = data?.duration;
     if (!Number.isFinite(loadedDuration) || loadedDuration <= 0) {
       console.warn('⚠️ Invalid or missing duration in onLoad:', loadedDuration);
@@ -380,7 +417,6 @@ export default function VideoEditorScreen({ route, navigation }) {
     }
 
     console.log('✅ Valid duration loaded:', loadedDuration);
-    // Proceed with trim setup
     setDuration(loadedDuration);
     setTrimStart(0);
     setTrimEnd(loadedDuration);
@@ -389,7 +425,7 @@ export default function VideoEditorScreen({ route, navigation }) {
     setPaused(false);
     videoRef.current?.seek(0);
 
-    // Fetch trim info
+    // Load trim data if available
     if (projectId && clipId) {
       loadTrimInfo(projectId, clipId).then((savedTrim) => {
         if (
@@ -542,41 +578,40 @@ return (
         {/* Video Player */}
         <View style={styles.videoWrapper}>
           <Animated.View
-              style={[
-                styles.videoContainerBase,
-                {
-                  width: containerWidth,
-                  height: containerHeight, 
-                  alignSelf: 'center',
-                  overflow: 'hidden',
-                  borderRadius: 8,
-                },
-              ]}
-            >
+            onLayout={(e) => {
+              const { width, height } = e.nativeEvent.layout;
+              console.log('📏 Layout set from VideoEditorScreen:', { width, height });
+              videoLayoutShared.value = {
+                frameWidth: width,
+                frameHeight: height,
+                containerWidth: width,
+                containerHeight: height,
+              };
+            }}
+            style={[
+              styles.videoContainerBase,
+              {
+                width: containerWidth,
+                height: containerHeight,
+                alignSelf: 'center',
+                overflow: 'hidden',
+                borderRadius: 8,
+              },
+            ]}
+          >
             {safeUri && (
-              // <Video
-              //   ref={videoRef}
-              //   source={{ uri: safeUri }}
-              //   onLoad={onLoad}
-              //   onError={onError}
-              //   onProgress={onProgress}
-              //   style={StyleSheet.absoluteFill}//{styles.video}
-              //   resizeMode="cover"
-              //   controls={false}
-              //   paused={paused}
-              // />
               <VideoPlaybackCanvas
                 clip={{ uri: currentClip?.uri }}
                 zoom={0}
                 x={0}
                 y={0}
-                isPreview={true}
+                isPreview={isPreview}
                 keyframes={keyframesShared}
                 currentTime={currentTimeShared}
                 trimStart={trimStart}
                 trimEnd={trimEnd}
                 paused={paused}
-                setPaused={setPaused} 
+                setPaused={setPaused}
                 setPlaybackTime={setCurrentTime}
                 videoLayout={videoLayoutShared}
                 videoRef={videoRef}
@@ -584,6 +619,8 @@ return (
                 onLoad={onLoad}
                 resizeMode="cover"
                 onProgress={onProgress}
+                videoNaturalWidthShared={videoNaturalWidthShared}
+                videoNaturalHeightShared={videoNaturalHeightShared}
               />
             )}
           </Animated.View>
