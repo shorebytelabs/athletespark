@@ -31,6 +31,7 @@ const VideoPlaybackCanvas = ({
   currentKeyframeIndex,
   setPaused,
   previewSessionId,
+  resizeMode,
 }) => {
   const offsetX = useSharedValue(x);
   const offsetY = useSharedValue(y);
@@ -187,7 +188,7 @@ const VideoPlaybackCanvas = ({
           paused={paused}
           onLoad={onLoad}
           onEnd={onEnd}
-          resizeMode="contain"
+          resizeMode={resizeMode}
           style={{ width: '100%', height: '100%' }}
           repeat
           // muted={!isPreview.value}

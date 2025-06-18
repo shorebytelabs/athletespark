@@ -25,7 +25,7 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
     timestamp: Number.isFinite(kf.timestamp) ? kf.timestamp : trimStart,
     x: Number.isFinite(kf.x) ? kf.x : 0,
     y: Number.isFinite(kf.y) ? kf.y : 0,
-    scale: Number.isFinite(kf.scale) ? kf.scale : 1.5,
+    scale: Number.isFinite(kf.scale) ? kf.scale : 1,
   });
 
   const current =
@@ -49,13 +49,13 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
           timestamp: Math.max(trimStart, Math.min(kf.timestamp, trimEnd)),
           x: Number.isFinite(kf.x) ? kf.x : 0,
           y: Number.isFinite(kf.y) ? kf.y : 0,
-          scale: Number.isFinite(kf.scale) ? kf.scale : 1.5,
+          scale: Number.isFinite(kf.scale) ? kf.scale : 1,
         }));
       } else {
         initialKeyframes = [
-          { timestamp: trimStart, x: 0, y: 0, scale: 1.5 },
-          { timestamp: trimStart + range / 2, x: 0, y: 0, scale: 1.5 },
-          { timestamp: trimEnd, x: 0, y: 0, scale: 1.5 },
+          { timestamp: trimStart, x: 0, y: 0, scale: 1 },
+          { timestamp: trimStart + range / 2, x: 0, y: 0, scale: 1 },
+          { timestamp: trimEnd, x: 0, y: 0, scale: 1 },
         ];
       }
 
@@ -261,6 +261,7 @@ const SmartZoomEditor = ({ videoUri, trimStart, trimEnd, onComplete, aspectRatio
               onLoad={onVideoLoad}
               currentKeyframeIndex={currentKeyframeIndexShared}
               setPaused={setPaused}
+              resizeMode="contain"
             />
           )}
         </View>

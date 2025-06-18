@@ -572,6 +572,7 @@ return (
                 videoRef={videoRef}
                 previewSessionId={clipId}
                 onLoad={onLoad}
+                resizeMode="cover"
               />
             )}
           </Animated.View>
