@@ -413,15 +413,12 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const onProgress = (data) => {
     const current = data.currentTime;
+    const effectiveTrimEnd = trimEnd > trimStart ? trimEnd : duration;
 
     if (current < trimStart) {
       videoRef.current?.seek(trimStart);
-    } else if (current >= trimEnd) {
-      if (loopTrimPreview) {
-        videoRef.current?.seek(trimStart);
-      } else {
-        setPaused(true);
-      }
+    } else if (current >= effectiveTrimEnd) {
+      setPaused(true);
     }
 
     setCurrentTime(current);
@@ -429,6 +426,19 @@ export default function VideoEditorScreen({ route, navigation }) {
   };
 
   const togglePlayPause = () => {
+    // fallback to currentTime if trimEnd/duration invalid
+    const effectiveTrimEnd = (trimEnd > trimStart ? trimEnd : duration) || currentTime;
+
+    // Add a 50ms buffer to account for float imprecision
+    const clipHasEnded = currentTime >= (effectiveTrimEnd - 0.05);
+
+    if (paused && clipHasEnded) {
+      const restartTime = trimStart || 0;
+      videoRef.current?.seek(restartTime);
+      setCurrentTime(restartTime);
+      currentTimeShared.value = restartTime;
+    }
+
     setPaused(prev => !prev);
   };
 
@@ -573,6 +583,7 @@ return (
                 previewSessionId={clipId}
                 onLoad={onLoad}
                 resizeMode="cover"
+                onProgress={onProgress}
               />
             )}
           </Animated.View>
