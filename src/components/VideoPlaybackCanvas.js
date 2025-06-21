@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View, Text, Image } from 'react-native';
 import Video from 'react-native-video';
 import Animated, {
   useSharedValue,
@@ -10,6 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { interpolateKeyframesSpline } from '../utils/interpolateKeyframesSpline';
+import { MarkerOverlay } from './MarkerOverlay';
 
 const VideoPlaybackCanvas = ({
   clip,
@@ -34,6 +35,8 @@ const VideoPlaybackCanvas = ({
   resizeMode,
   videoNaturalWidthShared,
   videoNaturalHeightShared,
+  gestureModeShared,
+  overlays,
 }) => {
   const offsetX = useSharedValue(x);
   const offsetY = useSharedValue(y);
@@ -43,19 +46,16 @@ const VideoPlaybackCanvas = ({
   const panStartY = useSharedValue(0);
 
   const editingMode = useDerivedValue(() => {
-    return !isPreview.value && Array.isArray(keyframes?.value) && keyframes.value.length === 3;
+    return !isPreview?.value && Array.isArray(keyframes?.value) && keyframes.value.length === 3;
   });
 
-  const initialized = useRef(false);
-
   useEffect(() => {
-    if (!isPreview && Array.isArray(keyframes?.value) && keyframes.value.length === 3) {
+    if (!isPreview?.value && Array.isArray(keyframes?.value) && keyframes.value.length === 3) {
       offsetX.value = x;
       offsetY.value = y;
       scale.value = zoom;
-      console.log('🟢 Updated values for clip:', { x, y, zoom });
     }
-  }, [x, y, zoom, isPreview, keyframes.value]);
+  }, [x, y, zoom, isPreview, keyframes?.value]);
 
   const pan = Gesture.Pan()
     .onBegin(() => {
@@ -63,24 +63,31 @@ const VideoPlaybackCanvas = ({
       panStartX.value = offsetX.value;
       panStartY.value = offsetY.value;
     })
-    .onTouchesDown(() => {
-      'worklet';
-      console.log('👆 Pan activated');
-      console.log('Pan Editing mode:', editingMode.value);
-    })
     .onUpdate((e) => {
       'worklet';
-      if (!editingMode.value) return;
       offsetX.value = panStartX.value + e.translationX;
       offsetY.value = panStartY.value + e.translationY;
-      // console.log('🟠 Pan update tx:', offsetX.value, 'ty:', offsetY.value);
+
+      if (
+        gestureModeShared &&
+        'value' in gestureModeShared &&
+        gestureModeShared.value === 'marker' &&
+        onChange &&
+        currentKeyframeIndex &&
+        'value' in currentKeyframeIndex &&
+        typeof currentKeyframeIndex.value === 'number'
+      ) {
+        runOnJS(onChange)(
+          { x: offsetX.value, y: offsetY.value },
+          currentKeyframeIndex.value
+        );
+      }
     });
 
   const pinch = Gesture.Pinch().onUpdate((e) => {
     'worklet';
     if (!editingMode.value || !Number.isFinite(e.scale)) return;
     scale.value *= e.scale;
-    // console.log('🔍 Zoom scale:', scale.value);
   });
 
   const composedGesture = Gesture.Simultaneous(pan, pinch);
@@ -99,7 +106,12 @@ const VideoPlaybackCanvas = ({
         x: offsetX.value,
         y: offsetY.value,
         scale: scale.value,
-        index: currentKeyframeIndex.value,
+        index:
+          currentKeyframeIndex &&
+          'value' in currentKeyframeIndex &&
+          typeof currentKeyframeIndex.value === 'number'
+            ? currentKeyframeIndex.value
+            : 0,
       };
     },
     (val) => {
@@ -123,25 +135,186 @@ const VideoPlaybackCanvas = ({
   useAnimatedReaction(
     () => currentKeyframeIndex?.value,
     (index) => {
-      if ( 
-        !isPreview.value &&
+      if (
+        editingMode.value &&
         Array.isArray(keyframes?.value) &&
-        keyframes.value[index]
+        Number.isInteger(index) &&
+        index >= 0 &&
+        index < keyframes.value.length
       ) {
         const kf = keyframes.value[index];
-        if (
-          Number.isFinite(kf.x) &&
-          Number.isFinite(kf.y) &&
-          Number.isFinite(kf.scale)
-        ) {
+        if (kf && Number.isFinite(kf.x) && Number.isFinite(kf.y)) {
           offsetX.value = kf.x;
           offsetY.value = kf.y;
-          scale.value = kf.scale;
+          scale.value = Number.isFinite(kf.scale) ? kf.scale : 1;
         }
       }
     },
-    [keyframes, currentKeyframeIndex, isPreview]
+    [keyframes, currentKeyframeIndex, editingMode]
   );
+
+  // const transformStyle = useAnimatedStyle(() => {
+  //   const layout = videoLayout?.value;
+  //   const naturalW = videoNaturalWidthShared?.value;
+  //   const naturalH = videoNaturalHeightShared?.value;
+
+  //   if (!layout || !naturalW || !naturalH || naturalW <= 0 || naturalH <= 0) {
+  //     return {};
+  //   }
+
+  //   const { frameWidth, frameHeight } = layout;
+  //   const fitScale = Math.max(frameWidth / naturalW, frameHeight / naturalH);
+
+  //   let tx = 0, ty = 0, sc = 1;
+  //   const t = currentTime.value;
+  //   const isPreviewing = isPreview?.value;
+  //   const hasValidKeyframes = Array.isArray(keyframes?.value) && keyframes.value.length >= 3;
+  //   const isZoomKeyframe = keyframes?.value?.[0]?.scale != null;
+
+  //   if (isPreviewing) {
+  //     if (hasValidKeyframes && isZoomKeyframe) {
+  //       const interpolated = interpolateKeyframesSpline(keyframes?.value ?? [], t);
+  //       if (interpolated && Number.isFinite(interpolated.scale)) {
+  //         tx = interpolated.x * fitScale;
+  //         ty = interpolated.y * fitScale;
+  //         sc = interpolated.scale;
+  //       }
+  //     } else {
+  //       // Smart Tracking: no transform, no spline
+  //       tx = 0;
+  //       ty = 0;
+  //       sc = 1;
+  //     }
+  //   } else {
+  //     // Editing mode (Smart Zoom or Tracking)
+  //     tx = offsetX.value * fitScale;
+  //     ty = offsetY.value * fitScale;
+  //     sc = Number.isFinite(scale.value) ? scale.value : 1;
+  //   }
+
+  //   return {
+  //     transform: [
+  //       { translateX: -tx },
+  //       { translateY: -ty },
+  //       { scale: sc },
+  //     ],
+  //     width: naturalW * fitScale,
+  //     height: naturalH * fitScale,
+  //   };
+  // });
+
+  // const transformStyle = useAnimatedStyle(() => {
+  //   const layout = videoLayout?.value;
+  //   const naturalW = videoNaturalWidthShared?.value;
+  //   const naturalH = videoNaturalHeightShared?.value;
+
+  //   if (!layout || !naturalW || !naturalH || naturalW <= 0 || naturalH <= 0) {
+  //     console.warn('⚠️ Missing or invalid layout or natural size', {
+  //       layout,
+  //       naturalW,
+  //       naturalH,
+  //     });
+  //     return {};
+  //   }
+
+  //   const { frameWidth, frameHeight } = layout;
+  //   const fitScale = Math.max(frameWidth / naturalW, frameHeight / naturalH);
+
+  //   let tx = 0, ty = 0, sc = 1;
+  //   const t = currentTime.value;
+  //   const isPreviewing = isPreview?.value;
+  //   const hasValidKeyframes = Array.isArray(keyframes?.value) && keyframes.value.length >= 3;
+  //   const isZoomKeyframe = keyframes?.value?.[0]?.scale != null;
+
+  //   // if (isPreviewing) {
+  //   //   if (hasValidKeyframes && isZoomKeyframe) {
+  //   //     const interpolated = interpolateKeyframesSpline(keyframes?.value ?? [], t);
+  //   //     if (interpolated && Number.isFinite(interpolated.scale)) {
+  //   //       tx = interpolated.x * fitScale;
+  //   //       ty = interpolated.y * fitScale;
+  //   //       sc = interpolated.scale;
+  //   //     } else {
+  //   //       console.warn('⚠️ Invalid interpolated zoom transform:', interpolated);
+  //   //     }
+  //   //   } else {
+  //   //     // Smart Tracking mode: no zoom transforms applied
+  //   //     tx = 0;
+  //   //     ty = 0;
+  //   //     sc = 1;
+  //   //   }
+  //   // } else {
+  //   //   // Editing mode (Smart Zoom or Tracking)
+  //   //   tx = offsetX.value * fitScale;
+  //   //   ty = offsetY.value * fitScale;
+  //   //   sc = Number.isFinite(scale.value) ? scale.value : 1;
+  //   // }
+
+  //   // console.warn('📸 transformStyle', {
+  //   //   isPreviewing,
+  //   //   t,
+  //   //   tx,
+  //   //   ty,
+  //   //   sc,
+  //   //   fitScale,
+  //   //   layout,
+  //   //   naturalW,
+  //   //   naturalH,
+  //   // });
+
+  //   if (isPreviewing) {
+  //     const keyframeList = keyframes?.value ?? [];
+  //     const isZoomKeyframe = keyframeList?.[0]?.scale != null;
+
+  //     if (hasValidKeyframes && isZoomKeyframe) {
+  //       const interpolated = interpolateKeyframesSpline(keyframeList, t);
+
+  //       if (
+  //         interpolated &&
+  //         Number.isFinite(interpolated.x) &&
+  //         Number.isFinite(interpolated.y) &&
+  //         Number.isFinite(interpolated.scale)
+  //       ) {
+  //         tx = interpolated.x * fitScale;
+  //         ty = interpolated.y * fitScale;
+  //         sc = interpolated.scale;
+  //       } else {
+  //         console.warn('⚠️ Invalid interpolated values for Smart Zoom:', interpolated);
+  //         tx = 0;
+  //         ty = 0;
+  //         sc = 1;
+  //       }
+  //     } else {
+  //       // Smart Tracking or no-op: don't apply transform
+  //       tx = 0;
+  //       ty = 0;
+  //       sc = 1;
+  //     }
+
+  //     console.warn('📸 transformStyle', {
+  //       isPreviewing,
+  //       t,
+  //       tx,
+  //       ty,
+  //       sc,
+  //       fitScale,
+  //       layout,
+  //       naturalW,
+  //       naturalH,
+  //       keyframes: keyframeList,
+  //       isZoomKeyframe,
+  //     });
+  //   }
+
+  //   return {
+  //     transform: [
+  //       { translateX: -tx },
+  //       { translateY: -ty },
+  //       { scale: sc },
+  //     ],
+  //     width: naturalW * fitScale,
+  //     height: naturalH * fitScale,
+  //   };
+  // });
 
   const transformStyle = useAnimatedStyle(() => {
     const layout = videoLayout?.value;
@@ -149,6 +322,7 @@ const VideoPlaybackCanvas = ({
     const naturalH = videoNaturalHeightShared?.value;
 
     if (!layout || !naturalW || !naturalH || naturalW <= 0 || naturalH <= 0) {
+      console.warn('⚠️ Missing or invalid layout or natural size', { layout, naturalW, naturalH });
       return {};
     }
 
@@ -156,78 +330,96 @@ const VideoPlaybackCanvas = ({
     const fitScale = Math.max(frameWidth / naturalW, frameHeight / naturalH);
 
     let tx = 0, ty = 0, sc = 1;
-
+    const t = currentTime.value;
     const isPreviewing = isPreview?.value;
     const hasValidKeyframes = Array.isArray(keyframes?.value) && keyframes.value.length >= 3;
+    const isZoomKeyframe = keyframes?.value?.[0]?.scale != null;
 
-    // 🛑 Fallback for non-smart-zoom clips (or bad data)
-    if (isPreviewing && !hasValidKeyframes) {
-      return {
-        transform: [
-          { translateX: 0 },
-          { translateY: 0 },
-          { scale: 1 },
-        ],
-        width: frameWidth,
-        height: frameHeight,
-      };
-    }
-
-    if (isPreviewing && hasValidKeyframes) {
-      const t = currentTime.value;
-      const interpolated = interpolateKeyframesSpline(keyframes.value, t);
-
-      //console.log('🎯 Smart Zoom Preview @', t, interpolated);
-
-      if (interpolated) {
-        tx = interpolated.x * fitScale;
-        ty = interpolated.y * fitScale;
-        sc = interpolated.scale;
+    if (isPreviewing) {
+      if (hasValidKeyframes && isZoomKeyframe) {
+        // Smart Zoom playback
+        const interpolated = interpolateKeyframesSpline(keyframes?.value ?? [], t);
+        if (interpolated && Number.isFinite(interpolated.scale)) {
+          tx = interpolated.x * fitScale;
+          ty = interpolated.y * fitScale;
+          sc = Math.max(1, Math.min(interpolated.scale, 10));
+        } else {
+          console.warn('⚠️ Invalid interpolated Smart Zoom:', interpolated);
+        }
+      } else {
+        // Smart Tracking playback — no transform
+        tx = 0;
+        ty = 0;
+        sc = 1;
       }
     } else {
-      // gesture editing mode
+      // Editing mode (Smart Zoom drag/zoom or Smart Tracking marker placement)
       tx = offsetX.value * fitScale;
       ty = offsetY.value * fitScale;
-      sc = scale.value;
+      sc = Math.max(1, Math.min(Number.isFinite(scale.value) ? scale.value : 1, 10));
     }
-
-    // console.log('🧪 transformStyle ctx:', {
-    //   isPreviewing,
-    //   hasValidKeyframes,
-    //   currentTime: currentTime.value,
-    //   keyframes: keyframes?.value,
-    // });
 
     return {
       transform: [
         { translateX: -tx },
         { translateY: -ty },
-        { scale: Number.isFinite(sc) ? sc : 1 },
+        { scale: sc },
       ],
       width: naturalW * fitScale,
       height: naturalH * fitScale,
     };
   });
 
+  console.log('🧩 VideoPlaybackCanvas rendering with context:', {
+    isPreview: isPreview?.value,
+    currentTime: currentTime?.value,
+    paused,
+    currentKeyframeIndex: currentKeyframeIndex?.value,
+    overlays: overlays?.value,
+    layout: videoLayout?.value,
+    naturalSize: {
+      w: videoNaturalWidthShared?.value,
+      h: videoNaturalHeightShared?.value,
+    },
+  });
+
   return (
     <GestureDetector gesture={composedGesture}>
-      <Animated.View
-        style={[
-          StyleSheet.absoluteFill,
-          transformStyle,
-        ]}
-      >
+      <Animated.View style={[StyleSheet.absoluteFill, transformStyle]}>
         <Video
-          key={`canvas-${previewSessionId}`} 
+          key={`canvas-${previewSessionId}`}
           ref={videoRef}
           source={{ uri: clip.uri }}
           paused={paused}
-          onLoad={onLoad}
+          onLoad={(data) => {
+            const naturalSize = data?.naturalSize;
+            const w = naturalSize?.width;
+            const h = naturalSize?.height;
+
+            if (w && h) {
+              videoNaturalWidthShared.value = w;
+              videoNaturalHeightShared.value = h;
+              console.log('✅ Set video natural size early:', { w, h });
+            } else {
+              console.warn('⚠️ Invalid naturalSize', naturalSize);
+            }
+
+            if (typeof onLoad === 'function') {
+              console.log('🧪 Calling parent onLoad');
+              onLoad(data);
+            }
+
+            if (Number.isFinite(currentTime?.value)) {
+              console.log('⏮ Force seek to', currentTime.value);
+              videoRef.current?.seek(currentTime.value);
+            }
+          }}
           onEnd={onEnd}
           resizeMode={resizeMode}
           style={{ width: '100%', height: '100%' }}
           repeat
           onProgress={({ currentTime: time }) => {
+            console.log('⏱ onProgress', time);
             if (time >= trimEnd) {
               setPaused(true);
               currentTime.value = trimEnd;
@@ -239,9 +431,74 @@ const VideoPlaybackCanvas = ({
             }
           }}
         />
+
+        {/* Marker Overlays */}
+        {Array.isArray(overlays?.value) && overlays.value.length > 0 && (
+          <>
+            {isPreview?.value ? (
+              overlays.value.map((kf, i) => {
+                if (!Number.isFinite(kf.timestamp)) {
+                  console.warn(`⚠️ Skipping keyframe ${i}: invalid timestamp`, kf);
+                  return null;
+                }
+
+                console.log(`🎯 Rendering preview marker for frame ${i}`, kf);
+
+                return (
+                  <MarkerOverlay
+                    key={`marker-preview-${i}`}
+                    index={i}
+                    overlays={overlays}
+                    interpolate={true}
+                    videoLayout={videoLayout}
+                    videoNaturalWidthShared={videoNaturalWidthShared}
+                    videoNaturalHeightShared={videoNaturalHeightShared}
+                    currentTime={currentTime}
+                    currentKeyframeIndex={currentKeyframeIndex}
+                  />
+                );
+              })
+            ) : (
+              Number.isInteger(currentKeyframeIndex?.value) &&
+              overlays.value?.[currentKeyframeIndex.value] &&
+              Number.isFinite(overlays.value[currentKeyframeIndex.value]?.timestamp) && (
+                <MarkerOverlay
+                  key={`marker-edit-${currentKeyframeIndex.value}`}
+                  index={currentKeyframeIndex.value}
+                  overlays={overlays}
+                  interpolate={false}
+                  videoLayout={videoLayout}
+                  videoNaturalWidthShared={videoNaturalWidthShared}
+                  videoNaturalHeightShared={videoNaturalHeightShared}
+                  currentTime={currentTime}
+                  currentKeyframeIndex={currentKeyframeIndex}
+                />
+              )
+            )}
+          </>
+        )}
       </Animated.View>
     </GestureDetector>
   );
 };
+
+const styles = StyleSheet.create({
+  circle: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2,
+    borderColor: 'red',
+    backgroundColor: 'rgba(255,0,0,0.3)',
+  },
+  emoji: {
+    fontSize: 24,
+    textAlign: 'center',
+  },
+  gif: {
+    width: 30,
+    height: 30,
+  },
+});
 
 export default VideoPlaybackCanvas;

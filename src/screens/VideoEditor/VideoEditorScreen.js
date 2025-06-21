@@ -89,6 +89,7 @@ export default function VideoEditorScreen({ route, navigation }) {
   const videoNaturalWidthShared = useSharedValue(null);
   const videoNaturalHeightShared = useSharedValue(null);
   const isPreview = useSharedValue(true);
+  const hasSmartTracking = !!currentClip.smartTrackingKeyframes?.length;
 
   let containerWidth, containerHeight;
 
@@ -541,6 +542,49 @@ export default function VideoEditorScreen({ route, navigation }) {
     setClips(updated);
   };
 
+  const handleSmartTracking = () => {
+  navigation.navigate('SmartTracking', {
+    project,
+    videoUri: currentClip?.uri,
+    trimStart,
+    trimEnd,
+    duration,
+    clipIndex: currentIndex,
+    aspectRatio,
+    existingTrackingKeyframes: currentClip?.smartTrackingKeyframes ?? null,
+  });
+};
+
+const handleSmartTrackingEdit = () => {
+  handleSmartTracking();
+};
+
+const handleSmartTrackingReset = () => {
+  const updated = [...clips];
+  updated[currentIndex].smartTrackingKeyframes = null;
+  setClips(updated);
+};
+
+useEffect(() => {
+  const persistSmartTracking = async () => {
+    if (route.params?.updatedSmartTracking) {
+      const { clipIndex, keyframes } = route.params.updatedSmartTracking;
+      const updatedClips = [...clips];
+      updatedClips[clipIndex] = {
+        ...updatedClips[clipIndex],
+        smartTrackingKeyframes: keyframes,
+      };
+      setClips(updatedClips);
+
+      const updatedProject = { ...project, clips: updatedClips };
+      await updateProject(updatedProject);
+
+      navigation.setParams({ updatedSmartTracking: null });
+    }
+  };
+  persistSmartTracking();
+  }, [route.params?.updatedSmartTracking, currentIndex]);
+
   const logVideoFileDetails = async (uri) => {
     // console.log('[SmartZoom] Attempting to load video:', uri);
 
@@ -769,7 +813,7 @@ return (
         </View>
 
         {/* Athlete Tracking Control */}
-        <View style={styles.toggleRow}>
+        {/* <View style={styles.toggleRow}>
           <Text style={styles.subtitle}>Athlete Tracking:</Text>
           <TouchableOpacity
             onPress={() => setTrackingEnabled(!trackingEnabled)}
@@ -782,6 +826,33 @@ return (
               {trackingEnabled ? 'Disable' : 'Enable'}
             </Text>
           </TouchableOpacity>
+        </View>
+         */}
+        <View style={styles.toggleRow}>
+          <Text style={styles.subtitle}>Smart Tracking:</Text>
+          {!hasSmartTracking ? (
+            <TouchableOpacity
+              onPress={handleSmartTracking}
+              style={styles.primaryButton}
+            >
+              <Text style={styles.buttonText}>Set Up</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.actionGroup}>
+              <TouchableOpacity
+                onPress={handleSmartTrackingEdit}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.buttonText}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleSmartTrackingReset}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.buttonText}>Reset</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* Export */}

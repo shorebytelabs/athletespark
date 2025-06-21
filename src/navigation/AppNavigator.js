@@ -10,6 +10,7 @@ import SettingsScreen from '../screens/Settings/SettingsScreen';
 import CreateProjectScreen from '../screens/CreateProject/CreateProjectScreen';
 import VideoEditorScreen from '../screens/VideoEditor/VideoEditorScreen';
 import SmartZoomScreen from '../screens/VideoEditor/SmartZoomScreen';
+import SmartTrackingScreen from '../screens/VideoEditor/SmartTrackingScreen';
 
 import { colors, navigationDarkTheme } from '../theme/theme';
 
@@ -102,6 +103,11 @@ export default function AppNavigator() {
           name="SmartZoom"
           component={SmartZoomScreen}
           options={{ title: 'Smart Zoom' }}
+        />
+        <Stack.Screen
+          name="SmartTracking"
+          component={SmartTrackingScreen}
+          options={{ title: 'Smart Tracking' }}
         />
       </Stack.Navigator>
     </NavigationContainer>
