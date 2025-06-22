@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import Video from 'react-native-video';
 import Animated, {
@@ -10,6 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { interpolateKeyframesSpline } from '../utils/interpolateKeyframesSpline';
+import MarkerOverlay from './MarkerOverlay';
 
 const VideoPlaybackCanvas = ({
   clip,
@@ -34,6 +35,8 @@ const VideoPlaybackCanvas = ({
   resizeMode,
   videoNaturalWidthShared,
   videoNaturalHeightShared,
+  overlays,
+  gestureModeShared,
 }) => {
   const offsetX = useSharedValue(x);
   const offsetY = useSharedValue(y);
@@ -42,11 +45,26 @@ const VideoPlaybackCanvas = ({
   const panStartX = useSharedValue(0);
   const panStartY = useSharedValue(0);
 
+  const markerPanStartX = useSharedValue(0);
+  const markerPanStartY = useSharedValue(0);
+
   const editingMode = useDerivedValue(() => {
+    console.log("!isPreview.value: ", !isPreview?.value,"Array.isArray(keyframes?.value): ",Array.isArray(keyframes?.value),"keyframes.value.length: ",keyframes?.value.length);
     return !isPreview.value && Array.isArray(keyframes?.value) && keyframes.value.length === 3;
   });
 
   const initialized = useRef(false);
+  const [gestureMode, setGestureMode] = useState('zoom');
+
+  useAnimatedReaction(
+    () => gestureModeShared?.value,
+    (val) => {
+      if (val && typeof val === 'string') {
+        runOnJS(setGestureMode)(val);
+      }
+    },
+    [gestureModeShared]
+  );
 
   useEffect(() => {
     if (!isPreview && Array.isArray(keyframes?.value) && keyframes.value.length === 3) {
@@ -55,7 +73,7 @@ const VideoPlaybackCanvas = ({
       scale.value = zoom;
       console.log('🟢 Updated values for clip:', { x, y, zoom });
     }
-  }, [x, y, zoom, isPreview, keyframes.value]);
+  }, [x, y, zoom, isPreview, keyframes?.value]);
 
   const pan = Gesture.Pan()
     .onBegin(() => {
@@ -70,20 +88,46 @@ const VideoPlaybackCanvas = ({
     })
     .onUpdate((e) => {
       'worklet';
+      console.log('👆 Pan - Pan gesture update');
       if (!editingMode.value) return;
       offsetX.value = panStartX.value + e.translationX;
       offsetY.value = panStartY.value + e.translationY;
       // console.log('🟠 Pan update tx:', offsetX.value, 'ty:', offsetY.value);
     });
 
-  const pinch = Gesture.Pinch().onUpdate((e) => {
+  const pinch = Gesture.Pinch()
+  .onUpdate((e) => {
     'worklet';
+    console.log('👆 Pinch - Pan gesture update');
     if (!editingMode.value || !Number.isFinite(e.scale)) return;
     scale.value *= e.scale;
     // console.log('🔍 Zoom scale:', scale.value);
   });
 
-  const composedGesture = Gesture.Simultaneous(pan, pinch);
+  const markerDrag = Gesture.Pan()
+    .onBegin(() => {
+      'worklet';
+      const current = overlays?.value?.[currentKeyframeIndex?.value];
+      if (current) {
+        markerPanStartX.value = current.x;
+        markerPanStartY.value = current.y;
+      }
+    })
+    .onUpdate((e) => {
+      'worklet';
+      console.log('👆 markerDrag - Pan gesture update');
+      if (
+        gestureModeShared?.value === 'marker' &&
+        overlays?.value?.[currentKeyframeIndex?.value]
+      ) {
+        overlays.value[currentKeyframeIndex.value].x = markerPanStartX.value + e.translationX;
+        overlays.value[currentKeyframeIndex.value].y = markerPanStartY.value + e.translationY;
+      }
+  });
+
+  const composedGesture = gestureMode === 'marker'
+    ? markerDrag
+    : Gesture.Simultaneous(pan, pinch);
 
   useAnimatedReaction(
     () => {
@@ -149,6 +193,7 @@ const VideoPlaybackCanvas = ({
     const naturalH = videoNaturalHeightShared?.value;
 
     if (!layout || !naturalW || !naturalH || naturalW <= 0 || naturalH <= 0) {
+      console.log("layout: ", layout, "naturalW: ", naturalW, "naturalH: ", naturalH);
       return {};
     }
 
@@ -162,6 +207,8 @@ const VideoPlaybackCanvas = ({
 
     // 🛑 Fallback for non-smart-zoom clips (or bad data)
     if (isPreviewing && !hasValidKeyframes) {
+      console.log("Fallback for non-smart-zoom clips - isPreviewing: ", isPreviewing, "hasValidKeyframes: ", hasValidKeyframes);
+
       return {
         transform: [
           { translateX: 0 },
@@ -173,30 +220,36 @@ const VideoPlaybackCanvas = ({
       };
     }
 
-    if (isPreviewing && hasValidKeyframes) {
-      const t = currentTime.value;
-      const interpolated = interpolateKeyframesSpline(keyframes.value, t);
+    const t = currentTime.value;
+    const interpolated = isPreviewing && hasValidKeyframes
+      ? interpolateKeyframesSpline(keyframes.value, t)
+      : null;
 
-      //console.log('🎯 Smart Zoom Preview @', t, interpolated);
+    // Track these always to ensure transform reactivity
+    const txRaw = offsetX.value;
+    const tyRaw = offsetY.value;
+    const scRaw = scale.value;
 
-      if (interpolated) {
-        tx = interpolated.x * fitScale;
-        ty = interpolated.y * fitScale;
-        sc = interpolated.scale;
-      }
+    if (interpolated) {
+      tx = interpolated.x * fitScale;
+      ty = interpolated.y * fitScale;
+      sc = interpolated.scale;
     } else {
-      // gesture editing mode
-      tx = offsetX.value * fitScale;
-      ty = offsetY.value * fitScale;
-      sc = scale.value;
+      tx = txRaw * fitScale;
+      ty = tyRaw * fitScale;
+      sc = scRaw;
     }
 
-    // console.log('🧪 transformStyle ctx:', {
-    //   isPreviewing,
-    //   hasValidKeyframes,
-    //   currentTime: currentTime.value,
-    //   keyframes: keyframes?.value,
-    // });
+    console.log('🧪 Final transform:', {
+      tx,
+      ty,
+      sc,
+      naturalW,
+      naturalH,
+      frameWidth,
+      frameHeight,
+      mode: isPreviewing ? 'preview' : 'edit',
+    });
 
     return {
       transform: [
@@ -211,18 +264,20 @@ const VideoPlaybackCanvas = ({
 
   return (
     <GestureDetector gesture={composedGesture}>
-      <Animated.View
-        style={[
-          StyleSheet.absoluteFill,
-          transformStyle,
-        ]}
-      >
+      <Animated.View style={[StyleSheet.absoluteFill, transformStyle]}>
         <Video
-          key={`canvas-${previewSessionId}`} 
+          key={`canvas-${previewSessionId}`}
           ref={videoRef}
           source={{ uri: clip.uri }}
           paused={paused}
-          onLoad={onLoad}
+          onLoad={(meta) => { 
+            videoNaturalWidthShared.value = meta.naturalSize.width;
+            videoNaturalHeightShared.value = meta.naturalSize.height;
+
+            if (onLoad) {
+              runOnJS(onLoad)(meta); // safely call the passed-in onLoad from props
+            }
+          }}
           onEnd={onEnd}
           resizeMode={resizeMode}
           style={{ width: '100%', height: '100%' }}
@@ -238,7 +293,54 @@ const VideoPlaybackCanvas = ({
               setPlaybackTime(time);
             }
           }}
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            if (videoLayout && 'value' in videoLayout) {
+              videoLayout.value = {
+                frameWidth: width,
+                frameHeight: height,
+              };
+              console.log('📐 Measured layout:', width, height);
+            }
+          }}
         />
+
+        {/* 🟢 Object Tracking Marker Overlays */}
+        {Array.isArray(overlays?.value) && overlays.value.length > 0 && (
+          <>
+            {isPreview?.value ? (
+              overlays.value.map((kf, i) => (
+                <MarkerOverlay
+                  key={`marker-preview-${i}`}
+                  index={i}
+                  overlays={overlays}
+                  interpolate={true}
+                  currentTime={currentTime}
+                  videoLayout={videoLayout}
+                  videoNaturalWidthShared={videoNaturalWidthShared}
+                  videoNaturalHeightShared={videoNaturalHeightShared}
+                  currentKeyframeIndex={currentKeyframeIndex}
+                />
+              ))
+            ) : (
+              Number.isInteger(currentKeyframeIndex?.value) &&
+              overlays.value?.[currentKeyframeIndex.value] &&
+              Number.isFinite(overlays.value[currentKeyframeIndex.value]?.timestamp) && (
+                <MarkerOverlay
+                  key={`marker-edit-${currentKeyframeIndex.value}`}
+                  index={currentKeyframeIndex.value}
+                  overlays={overlays}
+                  interpolate={false}
+                  currentTime={currentTime}
+                  videoLayout={videoLayout}
+                  videoNaturalWidthShared={videoNaturalWidthShared}
+                  videoNaturalHeightShared={videoNaturalHeightShared}
+                  currentKeyframeIndex={currentKeyframeIndex}
+                />
+              )
+            )}
+          </>
+        )}
       </Animated.View>
     </GestureDetector>
   );

@@ -25,6 +25,7 @@ import RNFS from 'react-native-fs';
 import VideoEditorNativeModule from '../../nativemodules/VideoEditorNativeModule';
 import Animated, { useSharedValue } from 'react-native-reanimated';
 import VideoPlaybackCanvas from '../../components/VideoPlaybackCanvas';
+import { trackingCallbackRef } from '../../utils/trackingCallbackRegistry';
 
 const defaultCategories = [
   'Goal',
@@ -80,6 +81,7 @@ export default function VideoEditorScreen({ route, navigation }) {
   const projectId = project?.id;
   const clipId = currentClip?.id || currentClip?.uri;
   const hasSmartZoom = !!currentClip.smartZoomKeyframes?.length;//= clips[currentIndex]?.smartZoomKeyframes != null;
+  const hasObjectTracking = Array.isArray(currentClip?.markerKeyframes) && currentClip.markerKeyframes.length > 0;
   const [safeUri, setSafeUri] = useState(null);
   const [aspectRatio, setAspectRatio] = useState(project?.aspectRatio ?? ASPECT_RATIOS.PORTRAIT);
   const screenWidth = Dimensions.get('window').width;
@@ -89,6 +91,7 @@ export default function VideoEditorScreen({ route, navigation }) {
   const videoNaturalWidthShared = useSharedValue(null);
   const videoNaturalHeightShared = useSharedValue(null);
   const isPreview = useSharedValue(true);
+  const trackingCallbackRef = useRef(null);
 
   let containerWidth, containerHeight;
 
@@ -385,6 +388,8 @@ export default function VideoEditorScreen({ route, navigation }) {
   };
 
   const keyframesShared = useRef(useSharedValue([])).current;
+  const overlaysShared = useRef(useSharedValue(currentClip?.markerKeyframes ?? [])).current;
+  const gestureModeShared = useRef(useSharedValue('zoom')).current;
 
   useEffect(() => {
     if (Array.isArray(currentClip?.smartZoomKeyframes)) {
@@ -541,6 +546,25 @@ export default function VideoEditorScreen({ route, navigation }) {
     setClips(updated);
   };
 
+  const handleSmartTracking = (initialMarkerKeyframes = []) => {
+    trackingCallbackRef.current = (updatedKeyframes) => {
+      const updated = [...clips];
+      updated[currentIndex].markerKeyframes = updatedKeyframes;
+      setClips(updated);
+    };
+
+    navigation.navigate('SmartTracking', {
+      project,
+      clip: currentClip,
+      videoUri: currentClip?.uri,
+      trimStart,
+      trimEnd,
+      duration,
+      aspectRatio,
+      markerKeyframes: initialMarkerKeyframes,
+    });
+  };
+
   const logVideoFileDetails = async (uri) => {
     // console.log('[SmartZoom] Attempting to load video:', uri);
 
@@ -607,6 +631,8 @@ return (
                 y={0}
                 isPreview={isPreview}
                 keyframes={keyframesShared}
+                overlays={overlaysShared}
+                gestureModeShared={gestureModeShared}
                 currentTime={currentTimeShared}
                 trimStart={trimStart}
                 trimEnd={trimEnd}
@@ -768,20 +794,36 @@ return (
           )}
         </View>
 
-        {/* Athlete Tracking Control */}
+        {/* Object Tracking Control */}
         <View style={styles.toggleRow}>
-          <Text style={styles.subtitle}>Athlete Tracking:</Text>
-          <TouchableOpacity
-            onPress={() => setTrackingEnabled(!trackingEnabled)}
-            style={[
-              styles.toggleButton,
-              { backgroundColor: trackingEnabled ? colors.danger : colors.accent1 },
-            ]}
-          >
-            <Text style={styles.buttonText}>
-              {trackingEnabled ? 'Disable' : 'Enable'}
-            </Text>
-          </TouchableOpacity>
+          <Text style={styles.subtitle}>Tracking:</Text>
+          {!hasObjectTracking ? (
+            <TouchableOpacity
+              onPress={() => handleSmartTracking([])}
+              style={styles.primaryButton}
+            >
+              <Text style={styles.buttonText}>Set Up</Text>
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.actionGroup}>
+              <TouchableOpacity
+                onPress={() => handleSmartTracking(currentClip.markerKeyframes)}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.buttonText}>Edit</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => {
+                  const updated = [...clips];
+                  updated[currentIndex].markerKeyframes = [];
+                  setClips(updated);
+                }}
+                style={styles.secondaryButton}
+              >
+                <Text style={styles.buttonText}>Reset</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
 
         {/* Export */}
