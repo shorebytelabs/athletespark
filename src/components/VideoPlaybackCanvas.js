@@ -10,7 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { interpolateKeyframesSpline } from '../utils/interpolateKeyframesSpline';
-import MarkerOverlay from './MarkerOverlay';
+import { MarkerOverlay } from './MarkerOverlay'; 
 
 const VideoPlaybackCanvas = ({
   clip,
@@ -104,25 +104,77 @@ const VideoPlaybackCanvas = ({
     // console.log('🔍 Zoom scale:', scale.value);
   });
 
+  // const markerDrag = Gesture.Pan()
+  //   .onBegin(() => {
+  //     'worklet';
+  //     const current = overlays?.value?.[currentKeyframeIndex?.value];
+  //     if (current) {
+  //       markerPanStartX.value = Number.isFinite(current.x) ? current.x : 100;
+  //       markerPanStartY.value = Number.isFinite(current.y) ? current.y : 300;
+  //     }
+  //   })
+  //   .onUpdate((e) => {
+  //     'worklet';
+  //     console.log('👆 markerDrag - Pan gesture update - gestureModeShared?.value: ', gestureModeShared?.value, "overlays?.value?.[currentKeyframeIndex?.value]: ",overlays?.value?.[currentKeyframeIndex?.value]);
+  //     if (
+  //       gestureModeShared?.value === 'marker' &&
+  //       overlays?.value?.[currentKeyframeIndex?.value]
+  //     ) {
+  //       overlays.value[currentKeyframeIndex.value].x = markerPanStartX.value + e.translationX;
+  //       overlays.value[currentKeyframeIndex.value].y = markerPanStartY.value + e.translationY;
+
+  //       console.log('👆 markerDrag - Pan gesture update - overlays.value[currentKeyframeIndex.value].x: ', overlays.value[currentKeyframeIndex.value].x, "overlays.value[currentKeyframeIndex.value].y: ",overlays.value[currentKeyframeIndex.value].y);
+  //     }
+  // });
+
   const markerDrag = Gesture.Pan()
-    .onBegin(() => {
-      'worklet';
-      const current = overlays?.value?.[currentKeyframeIndex?.value];
-      if (current) {
-        markerPanStartX.value = current.x;
-        markerPanStartY.value = current.y;
-      }
-    })
-    .onUpdate((e) => {
-      'worklet';
-      console.log('👆 markerDrag - Pan gesture update');
-      if (
-        gestureModeShared?.value === 'marker' &&
-        overlays?.value?.[currentKeyframeIndex?.value]
-      ) {
-        overlays.value[currentKeyframeIndex.value].x = markerPanStartX.value + e.translationX;
-        overlays.value[currentKeyframeIndex.value].y = markerPanStartY.value + e.translationY;
-      }
+  // 1) Remember the marker’s start position (natural-video space)
+  .onBegin(() => {
+    'worklet';
+    const i = currentKeyframeIndex.value;
+    const cur = overlays.value[i];
+
+    markerPanStartX.value = Number.isFinite(cur?.x) ? cur.x : 100;
+    markerPanStartY.value = Number.isFinite(cur?.y) ? cur.y : 300;
+  })
+
+  // 2) Convert drag delta & write back immutably
+  .onUpdate((e) => {
+    'worklet';
+    if (gestureModeShared?.value !== 'marker') return;
+
+    const layout = videoLayout.value;
+    const w = videoNaturalWidthShared.value;
+    const h = videoNaturalHeightShared.value;
+    if (!layout || w === 0 || h === 0) return;
+
+    // Same scale used in MarkerOverlay.js
+    const fitScale = Math.max(
+      layout.frameWidth  / w,
+      layout.frameHeight / h
+    );
+
+    // ΔX / ΔY back to natural-video pixels
+    const dxNat = e.translationX / fitScale;
+    const dyNat = e.translationY / fitScale;
+
+    const i = currentKeyframeIndex.value;
+    const updated = {
+      ...overlays.value[i],
+      x: markerPanStartX.value + dxNat,
+      y: markerPanStartY.value + dyNat,
+    };
+
+    // 🔄 Replace the whole array so Reanimated picks it up
+    overlays.value = overlays.value.map((o, idx) =>
+      idx === i ? updated : o
+    );
+
+    // (Optional) debug log
+    console.log(
+      '[pan→nat]', updated.x.toFixed(1), updated.y.toFixed(1),
+      'dx', dxNat.toFixed(1), 'scale', fitScale.toFixed(3)
+    );
   });
 
   const composedGesture = gestureMode === 'marker'
@@ -262,6 +314,44 @@ const VideoPlaybackCanvas = ({
     };
   });
 
+  // useEffect(() => {
+  //   const interval = setInterval(() => {
+  //     if (overlays?.value !== undefined) {
+  //       console.log("🛰️ overlays.value (polling):", JSON.stringify(overlays.value));
+  //     } else {
+  //       console.log("🛰️ overlays is undefined at polling time");
+  //     }
+  //   }, 1000);
+  //   return () => clearInterval(interval);
+  // }, []);
+
+  const [canRenderOverlay, setCanRenderOverlay] = useState(false);
+
+  const layoutReady = useDerivedValue(() => {
+    const layout = videoLayout?.value;
+    const w = videoNaturalWidthShared?.value;
+    const h = videoNaturalHeightShared?.value;
+
+    return (
+      layout &&
+      Number.isFinite(layout.frameWidth) &&
+      Number.isFinite(layout.frameHeight) &&
+      w > 0 &&
+      h > 0
+    );
+  });
+
+  useAnimatedReaction(
+    () => layoutReady.value,
+    (ready, prev) => {
+      if (ready && !prev) {
+        runOnJS(setCanRenderOverlay)(true); // ✅ safe
+      }
+    },
+    []
+  );
+
+
   return (
     <GestureDetector gesture={composedGesture}>
       <Animated.View style={[StyleSheet.absoluteFill, transformStyle]}>
@@ -270,12 +360,28 @@ const VideoPlaybackCanvas = ({
           ref={videoRef}
           source={{ uri: clip.uri }}
           paused={paused}
-          onLoad={(meta) => { 
-            videoNaturalWidthShared.value = meta.naturalSize.width;
-            videoNaturalHeightShared.value = meta.naturalSize.height;
+          // onLoad={(meta) => {
+          //   console.log('🎞️ Video loaded:', meta?.naturalSize);
+          //   videoNaturalWidthShared.value = meta?.naturalSize?.width ?? 0;
+          //   videoNaturalHeightShared.value = meta?.naturalSize?.height ?? 0;
+
+          //   if (onLoad) {
+          //     runOnJS(onLoad)(meta);
+          //   }
+          // }}
+          onLoad={(meta) => {
+            'worklet';
+            const w = meta?.naturalSize?.width  ?? 1;   // ⬅️ never 0
+            const h = meta?.naturalSize?.height ?? 1;
+
+            videoNaturalWidthShared.value  = w;
+            videoNaturalHeightShared.value = h;
+
+            // Allow the overlay layer to render immediately.
+            runOnJS(console.log)('🎞️ Video loaded (natural):', { w, h });
 
             if (onLoad) {
-              runOnJS(onLoad)(meta); // safely call the passed-in onLoad from props
+              runOnJS(onLoad)(meta);
             }
           }}
           onEnd={onEnd}
@@ -306,41 +412,116 @@ const VideoPlaybackCanvas = ({
         />
 
         {/* 🟢 Object Tracking Marker Overlays */}
-        {Array.isArray(overlays?.value) && overlays.value.length > 0 && (
-          <>
-            {isPreview?.value ? (
-              overlays.value.map((kf, i) => (
-                <MarkerOverlay
-                  key={`marker-preview-${i}`}
-                  index={i}
-                  overlays={overlays}
-                  interpolate={true}
-                  currentTime={currentTime}
-                  videoLayout={videoLayout}
-                  videoNaturalWidthShared={videoNaturalWidthShared}
-                  videoNaturalHeightShared={videoNaturalHeightShared}
-                  currentKeyframeIndex={currentKeyframeIndex}
-                />
-              ))
-            ) : (
-              Number.isInteger(currentKeyframeIndex?.value) &&
-              overlays.value?.[currentKeyframeIndex.value] &&
-              Number.isFinite(overlays.value[currentKeyframeIndex.value]?.timestamp) && (
-                <MarkerOverlay
-                  key={`marker-edit-${currentKeyframeIndex.value}`}
-                  index={currentKeyframeIndex.value}
-                  overlays={overlays}
-                  interpolate={false}
-                  currentTime={currentTime}
-                  videoLayout={videoLayout}
-                  videoNaturalWidthShared={videoNaturalWidthShared}
-                  videoNaturalHeightShared={videoNaturalHeightShared}
-                  currentKeyframeIndex={currentKeyframeIndex}
-                />
-              )
-            )}
-          </>
-        )}
+        {/* {Array.isArray(overlays?.value) && overlays.value.length > 0 && (() => {
+          const layout = videoLayout?.value;
+          const naturalW = videoNaturalWidthShared?.value;
+          const naturalH = videoNaturalHeightShared?.value;
+
+          const canRender =
+            layout &&
+            Number.isFinite(layout.frameWidth) &&
+            Number.isFinite(layout.frameHeight) &&
+            naturalW > 0 &&
+            naturalH > 0;
+
+          if (!canRender) {
+            console.warn('🚫 MarkerOverlay not rendered: layout or natural size not ready');
+            return null;
+          }
+
+          console.log('🧩 overlays.value at render:', JSON.stringify(overlays.value));
+
+          if (isPreview?.value) {
+            return overlays.value.map((kf, i) => (
+              <MarkerOverlay
+                key={`marker-preview-${i}`}
+                index={i}
+                overlays={overlays}
+                interpolate={true}
+                currentTime={currentTime}
+                videoLayout={videoLayout}
+                videoNaturalWidthShared={videoNaturalWidthShared}
+                videoNaturalHeightShared={videoNaturalHeightShared}
+              />
+            ));
+          } else if (
+            Number.isInteger(currentKeyframeIndex?.value) &&
+            overlays.value?.[currentKeyframeIndex.value] &&
+            Number.isFinite(overlays.value[currentKeyframeIndex.value]?.timestamp)
+          ) {
+            return (
+              <MarkerOverlay
+                key={`marker-edit-${currentKeyframeIndex.value}`}
+                index={currentKeyframeIndex.value}
+                overlays={overlays}
+                interpolate={false}
+                currentTime={currentTime}
+                videoLayout={videoLayout}
+                videoNaturalWidthShared={videoNaturalWidthShared}
+                videoNaturalHeightShared={videoNaturalHeightShared}
+              />
+            );
+          }
+
+          return null;
+        })()} */}
+
+        {canRenderOverlay &&
+        Array.isArray(overlays?.value) &&
+        overlays.value.length > 0 &&
+        (() => {
+          const layout = videoLayout?.value;
+          const naturalW = videoNaturalWidthShared?.value;
+          const naturalH = videoNaturalHeightShared?.value;
+
+          const canRender =
+            layout &&
+            Number.isFinite(layout.frameWidth) &&
+            Number.isFinite(layout.frameHeight) &&
+            naturalW > 0 &&
+            naturalH > 0;
+
+          if (!canRender) {
+            console.warn('🚫 MarkerOverlay not rendered: layout or natural size not ready');
+            return null;
+          }
+
+          console.log('🧩 overlays.value at render:', JSON.stringify(overlays.value));
+
+          if (isPreview?.value) {
+            return overlays.value.map((kf, i) => (
+              <MarkerOverlay
+                key={`marker-preview-${i}`}
+                index={i}
+                overlays={overlays}
+                interpolate={true}
+                currentTime={currentTime}
+                videoLayout={videoLayout}
+                videoNaturalWidthShared={videoNaturalWidthShared}
+                videoNaturalHeightShared={videoNaturalHeightShared}
+              />
+            ));
+          } else if (
+            Number.isInteger(currentKeyframeIndex?.value) &&
+            overlays.value?.[currentKeyframeIndex.value] &&
+            Number.isFinite(overlays.value[currentKeyframeIndex.value]?.timestamp)
+          ) {
+            return (
+              <MarkerOverlay
+                key={`marker-edit-${currentKeyframeIndex.value}`}
+                index={currentKeyframeIndex.value}
+                overlays={overlays}
+                interpolate={false}
+                currentTime={currentTime}
+                videoLayout={videoLayout}
+                videoNaturalWidthShared={videoNaturalWidthShared}
+                videoNaturalHeightShared={videoNaturalHeightShared}
+              />
+            );
+          }
+
+          return null;
+        })()}
       </Animated.View>
     </GestureDetector>
   );
