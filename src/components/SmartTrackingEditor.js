@@ -202,10 +202,11 @@ const SmartTrackingEditor = ({
         style={[
             styles.videoFrameWrapper,
             {
-            aspectRatio: OUTPUT_ASPECT_RATIO,
-            width: '90%',
-            maxWidth: 360,
-            alignSelf: 'center',
+                aspectRatio: OUTPUT_ASPECT_RATIO,
+                width: '90%',
+                maxWidth: 360,
+                maxHeight: OUTPUT_ASPECT_RATIO < 1 ? 500 : undefined,
+                alignSelf: 'center',
             },
         ]}
         onLayout={handleLayout}
@@ -264,7 +265,7 @@ const SmartTrackingEditor = ({
 
         {/* Controls */}
         <View style={styles.controls}>
-        <TouchableOpacity onPress={handlePrevKeyframe} style={styles.button}>
+        {/* <TouchableOpacity onPress={handlePrevKeyframe} style={styles.button}>
             <Text style={styles.buttonText}>⏮️ Prev</Text>
         </TouchableOpacity>
         <TouchableOpacity onPress={handleAddKeyframe} style={styles.button}>
@@ -277,7 +278,7 @@ const SmartTrackingEditor = ({
             <Text style={styles.buttonText}>
             {paused.value ? '▶️ Preview' : '⏸️ Pause'}
             </Text>
-        </TouchableOpacity>
+        </TouchableOpacity> */}
         <TouchableOpacity
             onPress={() => {
             if (typeof onFinish === 'function') {
