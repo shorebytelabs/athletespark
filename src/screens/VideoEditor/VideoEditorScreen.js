@@ -53,8 +53,22 @@ const ASPECT_RATIOS = {
 };
 
 export default function VideoEditorScreen({ route, navigation }) {
-  const { project, onClipUpdate, currentClip: routeCurrentClip} = route.params ?? {};
-  
+  const {
+  project: initialProject,
+  onClipUpdate,
+  currentClip: routeCurrentClip,
+} = route.params ?? {};
+
+// keep a fresh copy in RAM so we can mutate it and stay in sync
+const [project, setProject] = useState(initialProject);
+
+// writes to storage **and** refreshes the in-memory copy
+const saveProject = async (patch) => {
+  const next = { ...project, ...patch };
+    await updateProject(next);   // 💾 persists to AsyncStorage / DB
+    setProject(next);            // 🧠 refreshes local state so future edits use it
+};
+
   const [keyframes, setKeyframes] = useState([]);
   const videoRef = useRef(null);
   const [markerPos, setMarkerPos] = useState({ x: 0.5, y: 0.5 });
@@ -208,7 +222,7 @@ export default function VideoEditorScreen({ route, navigation }) {
         setClips(updatedClips);
 
         const updatedProject = { ...project, clips: updatedClips };
-        await updateProject(updatedProject);
+        await saveProject(updatedProject);
 
         console.log("persistSmartZoom - keyframes",keyframes)
 
@@ -269,7 +283,7 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const saveEditedClipsToProject = async () => {
     const updatedProject = { ...project, clips: clips, aspectRatio};
-    await updateProject(updatedProject);
+    await saveProject(updatedProject);
   };
 
   const loadCustomCategories = async () => {
@@ -298,20 +312,28 @@ export default function VideoEditorScreen({ route, navigation }) {
     'Other / Create New',
   ];
 
-  const assignCategory = (category) => {
+  const assignCategory = async (category) => {
     if (category === 'Other / Create New') {
-        setNewCategoryName('');
-        setModalVisible(true);
-        return;
+      setNewCategoryName('');
+      setModalVisible(true);
+      return;
     }
+
+    /* 1. update React state */
     const updatedClips = [...clips];
-    // Deselect if user taps the already selected category
-    if (updatedClips[currentIndex].category === category) {
-        updatedClips[currentIndex].category = null;
-    } else {
-        updatedClips[currentIndex].category = category;
-    }
+    updatedClips[currentIndex] = {
+      ...updatedClips[currentIndex],
+      // deselect if tapped twice
+      category: updatedClips[currentIndex].category === category ? null : category,
+    };
     setClips(updatedClips);
+
+    /* 2. persist to storage */
+    try {
+      await saveProject({ ...project, clips: updatedClips });
+    } catch (err) {
+      console.warn('⚠️  failed to persist category', err);
+    }
   };
 
   const addCustomCategory = () => {
@@ -578,10 +600,17 @@ export default function VideoEditorScreen({ route, navigation }) {
     handleSmartZoom();
   };
 
-  const handleSmartZoomReset = () => {
+  const handleSmartZoomReset = async () => {
+
     const updated = [...clips];
     updated[currentIndex].smartZoomKeyframes = null;
     setClips(updated);
+
+  try {
+      await saveProject({ ...project, clips: updated });
+    } catch (err) {
+      console.warn('⚠️  failed to persist smartZoom reset', err);
+    }
   };
 
   const latestMarkerKeyframesRef = useRef([]);
@@ -631,7 +660,7 @@ export default function VideoEditorScreen({ route, navigation }) {
 
       /* 2.4  Persist */
       try {
-        await updateProject({ ...project, clips: nextClips });
+        await saveProject({ ...project, clips: nextClips });
         console.log('✅  persisted markerKeyframes');
       } catch (err) {
         console.warn('⚠️  failed to persist markerKeyframes', err);
@@ -799,10 +828,15 @@ return (
                 styles.aspectRatioButton,
                 aspectRatio.label === option.label && styles.aspectRatioButtonSelected,
               ]}
-              onPress={() => {
+              onPress={async () => {
                 setAspectRatio(option);
+                try {
+                  await saveProject({ aspectRatio: option });
+                } catch (err) {
+                  console.warn('⚠️  failed to persist aspectRatio', err);
+                }
               }}
-            >
+              >
               <Text
                 style={[
                   styles.aspectRatioButtonText,
@@ -904,12 +938,18 @@ return (
                 <Text style={styles.buttonText}>Edit</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                onPress={() => {
+                onPress={async () => {
                   const updated = [...clips];
                   updated[currentIndex].markerKeyframes = [];
                   setClips(updated);
                   overlaysShared.value = []; 
-                  setHasTracking(false);              
+                  setHasTracking(false);     
+                  latestMarkerKeyframesRef.current = [];   
+                  try {
+                    await saveProject({ ...project, clips: updated });
+                  } catch (err) {
+                    console.warn('⚠️  failed to persist markerKeyframes reset', err);
+                  }
                 }}
                 style={styles.secondaryButton}
               >
