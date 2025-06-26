@@ -23,7 +23,7 @@ import { colors } from '../../theme/theme';
 import ClipNavigation from '../../navigation/ClipNavigation';
 import RNFS from 'react-native-fs';
 import VideoEditorNativeModule from '../../nativemodules/VideoEditorNativeModule';
-import Animated, { useSharedValue } from 'react-native-reanimated';
+import Animated, { useSharedValue, runOnUI } from 'react-native-reanimated';
 import VideoPlaybackCanvas from '../../components/VideoPlaybackCanvas';
 import { trackingCallbackRef } from '../../utils/trackingCallbackRegistry';
 
@@ -80,8 +80,7 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const projectId = project?.id;
   const clipId = currentClip?.id || currentClip?.uri;
-  const hasSmartZoom = !!currentClip.smartZoomKeyframes?.length;//= clips[currentIndex]?.smartZoomKeyframes != null;
-  const hasObjectTracking = Array.isArray(currentClip?.markerKeyframes) && currentClip.markerKeyframes.length > 0;
+  const hasSmartZoom = !!currentClip.smartZoomKeyframes?.length;
   const [safeUri, setSafeUri] = useState(null);
   const [aspectRatio, setAspectRatio] = useState(project?.aspectRatio ?? ASPECT_RATIOS.PORTRAIT);
   const screenWidth = Dimensions.get('window').width;
@@ -91,7 +90,8 @@ export default function VideoEditorScreen({ route, navigation }) {
   const videoNaturalWidthShared = useSharedValue(null);
   const videoNaturalHeightShared = useSharedValue(null);
   const isPreview = useSharedValue(true);
-  const trackingCallbackRef = useRef(null);
+  
+  const [hasTracking, setHasTracking] = React.useState(false);
 
   let containerWidth, containerHeight;
 
@@ -397,6 +397,44 @@ export default function VideoEditorScreen({ route, navigation }) {
     }
   }, [currentClip?.smartZoomKeyframes]);
 
+  // Keep overlaysShared in-sync with the clip we’re viewing
+  useEffect(() => {
+    if (Array.isArray(currentClip?.markerKeyframes)) {
+      overlaysShared.value = currentClip.markerKeyframes;
+    } else {
+      overlaysShared.value = [];
+    }
+  }, [currentClip?.markerKeyframes]);
+
+  /* 🔄 keep the “hasTracking” flag in sync as well */
+  useEffect(() => {
+      setHasTracking(
+        Array.isArray(currentClip?.markerKeyframes) &&
+        currentClip.markerKeyframes.length > 0
+      );
+    }, [currentClip?.markerKeyframes]);
+
+    useEffect(() => {
+    if (!currentClip) return;
+
+    const kf = Array.isArray(currentClip.markerKeyframes)
+      ? currentClip.markerKeyframes
+      : [];
+
+    runOnUI((_copy) => {
+      // always hand Reanimated a brand-new reference
+      overlaysShared.value = _copy;
+    })(kf.map(o => ({ ...o })));   // <- plain JS clone
+
+    setHasTracking(kf.length > 0);
+  }, [currentClip?.markerKeyframes, currentClip?.id]);
+
+  useEffect(() => {
+    if (Array.isArray(currentClip?.markerKeyframes)) {
+      latestMarkerKeyframesRef.current = currentClip.markerKeyframes.map(k => ({ ...k }));
+    }
+  }, [currentClip?.markerKeyframes, currentClip?.id]);
+
   const onLoad = (data) => {
     console.log('🎞 onLoad triggered with data:', data);
 
@@ -546,22 +584,77 @@ export default function VideoEditorScreen({ route, navigation }) {
     setClips(updated);
   };
 
-  const handleSmartTracking = (initialMarkerKeyframes = []) => {
-    trackingCallbackRef.current = (updatedKeyframes) => {
-      const updated = [...clips];
-      updated[currentIndex].markerKeyframes = updatedKeyframes;
-      setClips(updated);
+  const latestMarkerKeyframesRef = useRef([]);
+
+  const handleSmartTracking = () => {
+    /* -----------------------------------------------------------
+    * 1️⃣  Figure out which key-frames to send to the editor
+    * -----------------------------------------------------------
+    * ‣ latestMarkerKeyframesRef.current → always the freshest
+    * ‣ overlaysShared.value             → fresh unless editing
+    * ‣ currentClip.markerKeyframes      → last on-disk copy
+    */
+
+    let initial = [];
+
+    if (latestMarkerKeyframesRef.current?.length) {
+      initial = latestMarkerKeyframesRef.current.map(k => ({ ...k }));
+    } else if (Array.isArray(overlaysShared.value) &&
+              overlaysShared.value.length) {
+      initial = overlaysShared.value.map(k => ({ ...k }));
+    } else if (Array.isArray(currentClip?.markerKeyframes) &&
+              currentClip.markerKeyframes.length) {
+      initial = currentClip.markerKeyframes.map(k => ({ ...k }));
+    }
+
+    console.log('🔗 Pushing to SmartTracking with', JSON.stringify(initial));
+
+    /* -----------------------------------------------------------
+    * 2️⃣  Callback the editor will invoke when the user taps “Save”
+    * -----------------------------------------------------------
+    */
+    trackingCallbackRef.current = async (updated) => {
+      /* 2.1  Update React state */
+      const nextClips              = [...clips];
+      nextClips[currentIndex]      = {
+        ...nextClips[currentIndex],
+        markerKeyframes: updated,
+      };
+      setClips(nextClips);
+
+      /* 2.2  Update shared value -> canvas refresh happens instantly */
+      runOnUI(kfs => { overlaysShared.value = kfs; })
+        (updated.map(k => ({ ...k })));
+
+      /* 2.3  Remember for the next session */
+      latestMarkerKeyframesRef.current = updated.map(k => ({ ...k }));
+
+      /* 2.4  Persist */
+      try {
+        await updateProject({ ...project, clips: nextClips });
+        console.log('✅  persisted markerKeyframes');
+      } catch (err) {
+        console.warn('⚠️  failed to persist markerKeyframes', err);
+      }
+
+      /* 2.5  Tell the Video-editor there is now tracking data */
+      setHasTracking(updated.length > 0);
     };
 
+    /* -----------------------------------------------------------
+    * 3️⃣  Finally navigate
+    * -----------------------------------------------------------
+    */
     navigation.navigate('SmartTracking', {
       project,
-      clip: currentClip,
-      videoUri: currentClip?.uri,
+      clip:        currentClip,
+      videoUri:    currentClip?.uri,
       trimStart,
       trimEnd,
       duration,
       aspectRatio,
-      markerKeyframes: initialMarkerKeyframes,
+      markerKeyframes: initial,   
+      startInEdit: true,
     });
   };
 
@@ -570,13 +663,9 @@ export default function VideoEditorScreen({ route, navigation }) {
 
     try {
       const exists = await RNFS.exists(uri);
-      // console.log(`[SmartZoom] File exists: ${exists}`);
 
       if (exists) {
         const stat = await RNFS.stat(uri);
-        // console.log(`[SmartZoom] File size: ${stat.size}`);
-        // console.log(`[SmartZoom] File modified: ${stat.mtime}`);
-        // console.log(`[SmartZoom] File path: ${stat.path}`);
       } else {
         console.warn('[SmartZoom] File does not exist at path:', uri);
       }
@@ -797,9 +886,10 @@ return (
         {/* Object Tracking Control */}
         <View style={styles.toggleRow}>
           <Text style={styles.subtitle}>Tracking:</Text>
-          {!hasObjectTracking ? (
+          {!hasTracking ? (  
             <TouchableOpacity
-              onPress={() => handleSmartTracking([])}
+              // onPress={() => handleSmartTracking(currentClip?.markerKeyframes ?? [])}
+              onPress={() => handleSmartTracking([...overlaysShared.value])}
               style={styles.primaryButton}
             >
               <Text style={styles.buttonText}>Set Up</Text>
@@ -807,7 +897,8 @@ return (
           ) : (
             <View style={styles.actionGroup}>
               <TouchableOpacity
-                onPress={() => handleSmartTracking(currentClip.markerKeyframes)}
+                // onPress={() => handleSmartTracking(currentClip.markerKeyframes)}
+                onPress={() => handleSmartTracking([...overlaysShared.value])}
                 style={styles.secondaryButton}
               >
                 <Text style={styles.buttonText}>Edit</Text>
@@ -817,6 +908,8 @@ return (
                   const updated = [...clips];
                   updated[currentIndex].markerKeyframes = [];
                   setClips(updated);
+                  overlaysShared.value = []; 
+                  setHasTracking(false);              
                 }}
                 style={styles.secondaryButton}
               >

@@ -4,7 +4,9 @@ import React, { useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import VideoPlaybackCanvas from './VideoPlaybackCanvas';
 import { Gesture } from 'react-native-gesture-handler';
-import { useSharedValue } from 'react-native-reanimated';
+import { useSharedValue, runOnJS } from 'react-native-reanimated';
+import { runOnUI } from 'react-native-reanimated';
+import { useRoute } from '@react-navigation/native';
 
 const SmartTrackingEditor = ({
   clip,
@@ -16,11 +18,12 @@ const SmartTrackingEditor = ({
   onFinish,
 }) => {
   const videoRef = useRef(null);
+  const route = useRoute();
 
   // Shared values for interaction
   const currentTime = useSharedValue(trimStart);
   const currentKeyframeIndex = useSharedValue(0);
-  const isPreview = useSharedValue(false);
+  const isPreview = useSharedValue(route.params?.startInEdit ? false : true);
   const paused = useSharedValue(true);
   const videoLayout = useSharedValue(null);
   const gestureModeShared = useSharedValue('marker');
@@ -28,19 +31,31 @@ const SmartTrackingEditor = ({
   const videoNaturalHeightShared = useSharedValue(0);
   const OUTPUT_ASPECT_RATIO = aspectRatio?.ratio ?? 9 / 16;
 
+  /* ------------------------------------------------------------- */
+  /* 1️⃣  Create overlays shared value *with* the incoming keyframes */
+  /* ------------------------------------------------------------- */
   const overlays = useSharedValue(
-    Array.isArray(markerKeyframes) && markerKeyframes.length > 0
-        ? markerKeyframes
-        : [
-            {
-            timestamp: trimStart,
-            x: 100,
-            y: 300,
-            scale: 1,
-            markerType: 'circle',
-            },
-        ]
+    Array.isArray(markerKeyframes) && markerKeyframes.length
+        ? markerKeyframes.map(kf => ({ ...kf }))          // fresh copy
+        : [{ timestamp: trimStart, x: 100, y: 300, markerType: 'circle' }]
   );
+
+  /* ---------------------------------------------------------------- */
+  /* 2️⃣  Keep overlays/currentTime in-sync when markerKeyframes change */
+  /* ---------------------------------------------------------------- */
+  useEffect(() => {
+    if (!Array.isArray(markerKeyframes) || markerKeyframes.length === 0) return;
+
+    runOnUI((_newKfs) => {
+        overlays.value             = _newKfs;            // new shareable reference
+        currentKeyframeIndex.value = 0;
+        currentTime.value          = _newKfs[0].timestamp ?? trimStart;
+    })(markerKeyframes.map(kf => ({ ...kf })));         // <- pass plain data
+
+    requestAnimationFrame(() => {
+        videoRef.current?.seek?.(markerKeyframes[0].timestamp ?? 0);
+    });
+    }, [markerKeyframes]);
 
   const zoomKeyframesShared = useSharedValue(
     Array.isArray(smartZoomKeyframes)
@@ -109,38 +124,6 @@ const SmartTrackingEditor = ({
     }
   };
 
-//   const handleSelectMarkerType = (type) => {
-//     const index = currentKeyframeIndex?.value ?? 0;
-//     const timestamp = currentTime.value;
-//     const keyframes = Array.isArray(overlays.value) ? [...overlays.value] : [];
-
-//     let updated;
-
-//     if (keyframes[index]) {
-//         updated = {
-//         ...keyframes[index],
-//         timestamp: keyframes[index].timestamp ?? timestamp,
-//         markerType: type,
-//         x: keyframes[index].x ?? 0,
-//         y: keyframes[index].y ?? 0,
-//         scale: keyframes[index].scale ?? 1,
-//         };
-//     } else {
-//         updated = {
-//         timestamp,
-//         x: 0,
-//         y: 0,
-//         scale: 1,
-//         markerType: type,
-//         };
-//     }
-
-//     keyframes[index] = updated;
-//     overlays.value = keyframes;
-
-//     console.log("handleSelectMarkerType - index:", index, "updated:", updated);
-//     console.log("overlays.value now:", overlays.value);
-//   };
    const handleSelectMarkerType = (type) => {
     const index = currentKeyframeIndex?.value ?? 0;
     const timestamp = Number.isFinite(currentTime?.value) ? currentTime.value : (trimStart ?? 0);
@@ -238,12 +221,28 @@ const SmartTrackingEditor = ({
             trimStart={trimStart}
             trimEnd={trimEnd}
             onLoad={(meta) => {
-            const w = meta?.naturalSize?.width ?? 1920;
-            const h = meta?.naturalSize?.height ?? 1080;
-            videoNaturalWidthShared.value = w;
-            videoNaturalHeightShared.value = h;
-            currentTime.value = trimStart;
-            requestAnimationFrame(() => videoRef.current?.seek(trimStart));
+                // Set video natural dimensions for layout + marker math
+                const w = meta?.naturalSize?.width  ?? 1920;
+                const h = meta?.naturalSize?.height ?? 1080;
+                videoNaturalWidthShared.value  = w;
+                videoNaturalHeightShared.value = h;
+
+                // Start from first marker timestamp if it exists
+                const firstT =
+                    Array.isArray(overlays?.value) &&
+                    overlays.value.length > 0 &&
+                    Number.isFinite(overlays.value[0].timestamp)
+                    ? overlays.value[0].timestamp
+                    : trimStart;
+
+                currentTime.value = firstT;
+                currentKeyframeIndex.value = 0;
+
+                requestAnimationFrame(() => {
+                    videoRef.current?.seek?.(firstT);
+                });
+
+                console.log('🎞️ Video loaded', { w, h }, '→ seek to', firstT);
             }}
             onEnd={() => {
             paused.value = true;
@@ -283,6 +282,7 @@ const SmartTrackingEditor = ({
             onPress={() => {
             if (typeof onFinish === 'function') {
                 onFinish(overlays.value);
+                console.log("📤 Finishing editor with overlays.value:", JSON.stringify(overlays.value));
             }
             }}
             style={[styles.button, styles.finishButton]}

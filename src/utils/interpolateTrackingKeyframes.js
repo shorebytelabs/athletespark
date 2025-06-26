@@ -8,6 +8,7 @@
  * @returns {{ x: number, y: number, markerType: string } | null}
  */
 export function interpolateTrackingKeyframes(keyframes, t) {
+  'worklet'; 
   if (!Array.isArray(keyframes) || keyframes.length === 0 || !Number.isFinite(t)) {
     return null;
   }

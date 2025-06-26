@@ -104,29 +104,6 @@ const VideoPlaybackCanvas = ({
     // console.log('🔍 Zoom scale:', scale.value);
   });
 
-  // const markerDrag = Gesture.Pan()
-  //   .onBegin(() => {
-  //     'worklet';
-  //     const current = overlays?.value?.[currentKeyframeIndex?.value];
-  //     if (current) {
-  //       markerPanStartX.value = Number.isFinite(current.x) ? current.x : 100;
-  //       markerPanStartY.value = Number.isFinite(current.y) ? current.y : 300;
-  //     }
-  //   })
-  //   .onUpdate((e) => {
-  //     'worklet';
-  //     console.log('👆 markerDrag - Pan gesture update - gestureModeShared?.value: ', gestureModeShared?.value, "overlays?.value?.[currentKeyframeIndex?.value]: ",overlays?.value?.[currentKeyframeIndex?.value]);
-  //     if (
-  //       gestureModeShared?.value === 'marker' &&
-  //       overlays?.value?.[currentKeyframeIndex?.value]
-  //     ) {
-  //       overlays.value[currentKeyframeIndex.value].x = markerPanStartX.value + e.translationX;
-  //       overlays.value[currentKeyframeIndex.value].y = markerPanStartY.value + e.translationY;
-
-  //       console.log('👆 markerDrag - Pan gesture update - overlays.value[currentKeyframeIndex.value].x: ', overlays.value[currentKeyframeIndex.value].x, "overlays.value[currentKeyframeIndex.value].y: ",overlays.value[currentKeyframeIndex.value].y);
-  //     }
-  // });
-
   const markerDrag = Gesture.Pan()
   // 1) Remember the marker’s start position (natural-video space)
   .onBegin(() => {
@@ -169,12 +146,6 @@ const VideoPlaybackCanvas = ({
     overlays.value = overlays.value.map((o, idx) =>
       idx === i ? updated : o
     );
-
-    // (Optional) debug log
-    console.log(
-      '[pan→nat]', updated.x.toFixed(1), updated.y.toFixed(1),
-      'dx', dxNat.toFixed(1), 'scale', fitScale.toFixed(3)
-    );
   });
 
   const composedGesture = gestureMode === 'marker'
@@ -183,8 +154,12 @@ const VideoPlaybackCanvas = ({
 
   useAnimatedReaction(
     () => {
+      const isZoomMode =
+        !gestureModeShared /* Smart Zoom */ ||
+        gestureModeShared.value === 'zoom';
       if (
         !editingMode.value ||
+        !isZoomMode ||
         !currentKeyframeIndex ||
         !('value' in currentKeyframeIndex)
       ) {
@@ -199,7 +174,10 @@ const VideoPlaybackCanvas = ({
       };
     },
     (val) => {
+      const isZoomMode =
+        !gestureModeShared || gestureModeShared.value === 'zoom';
       if (
+        isZoomMode &&
         val &&
         onChange &&
         Number.isFinite(val.scale) &&
@@ -213,7 +191,7 @@ const VideoPlaybackCanvas = ({
         );
       }
     },
-    [editingMode]
+    [editingMode, gestureModeShared]
   );
 
   useAnimatedReaction(
@@ -314,17 +292,6 @@ const VideoPlaybackCanvas = ({
     };
   });
 
-  // useEffect(() => {
-  //   const interval = setInterval(() => {
-  //     if (overlays?.value !== undefined) {
-  //       console.log("🛰️ overlays.value (polling):", JSON.stringify(overlays.value));
-  //     } else {
-  //       console.log("🛰️ overlays is undefined at polling time");
-  //     }
-  //   }, 1000);
-  //   return () => clearInterval(interval);
-  // }, []);
-
   const [canRenderOverlay, setCanRenderOverlay] = useState(false);
 
   const layoutReady = useDerivedValue(() => {
@@ -360,29 +327,17 @@ const VideoPlaybackCanvas = ({
           ref={videoRef}
           source={{ uri: clip.uri }}
           paused={paused}
-          // onLoad={(meta) => {
-          //   console.log('🎞️ Video loaded:', meta?.naturalSize);
-          //   videoNaturalWidthShared.value = meta?.naturalSize?.width ?? 0;
-          //   videoNaturalHeightShared.value = meta?.naturalSize?.height ?? 0;
-
-          //   if (onLoad) {
-          //     runOnJS(onLoad)(meta);
-          //   }
-          // }}
           onLoad={(meta) => {
             'worklet';
-            const w = meta?.naturalSize?.width  ?? 1;   // ⬅️ never 0
+            const w = meta?.naturalSize?.width  ?? 1;
             const h = meta?.naturalSize?.height ?? 1;
 
             videoNaturalWidthShared.value  = w;
             videoNaturalHeightShared.value = h;
 
-            // Allow the overlay layer to render immediately.
             runOnJS(console.log)('🎞️ Video loaded (natural):', { w, h });
 
-            if (onLoad) {
-              runOnJS(onLoad)(meta);
-            }
+            if (onLoad) runOnJS(onLoad)(meta);
           }}
           onEnd={onEnd}
           resizeMode={resizeMode}
@@ -402,40 +357,20 @@ const VideoPlaybackCanvas = ({
           onLayout={(e) => {
             const { width, height } = e.nativeEvent.layout;
             if (videoLayout && 'value' in videoLayout) {
-              videoLayout.value = {
-                frameWidth: width,
-                frameHeight: height,
-              };
+              videoLayout.value = { frameWidth: width, frameHeight: height };
               console.log('📐 Measured layout:', width, height);
             }
           }}
         />
 
-        {/* 🟢 Object Tracking Marker Overlays */}
-        {/* {Array.isArray(overlays?.value) && overlays.value.length > 0 && (() => {
-          const layout = videoLayout?.value;
-          const naturalW = videoNaturalWidthShared?.value;
-          const naturalH = videoNaturalHeightShared?.value;
-
-          const canRender =
-            layout &&
-            Number.isFinite(layout.frameWidth) &&
-            Number.isFinite(layout.frameHeight) &&
-            naturalW > 0 &&
-            naturalH > 0;
-
-          if (!canRender) {
-            console.warn('🚫 MarkerOverlay not rendered: layout or natural size not ready');
-            return null;
-          }
-
-          console.log('🧩 overlays.value at render:', JSON.stringify(overlays.value));
-
-          if (isPreview?.value) {
-            return overlays.value.map((kf, i) => (
+        {/* 🟢 Object-tracking marker overlays */}
+        {Array.isArray(overlays?.value) && overlays.value.length > 0 && (
+          isPreview?.value ? (
+            /* ----- Preview: every keyframe, each does its own interpolation ----- */
+            overlays.value.map((_, i) => (
               <MarkerOverlay
                 key={`marker-preview-${i}`}
-                index={i}
+                currentKeyframeIndex={{ value: i }}      // constant-like object
                 overlays={overlays}
                 interpolate={true}
                 currentTime={currentTime}
@@ -443,85 +378,21 @@ const VideoPlaybackCanvas = ({
                 videoNaturalWidthShared={videoNaturalWidthShared}
                 videoNaturalHeightShared={videoNaturalHeightShared}
               />
-            ));
-          } else if (
-            Number.isInteger(currentKeyframeIndex?.value) &&
-            overlays.value?.[currentKeyframeIndex.value] &&
-            Number.isFinite(overlays.value[currentKeyframeIndex.value]?.timestamp)
-          ) {
-            return (
-              <MarkerOverlay
-                key={`marker-edit-${currentKeyframeIndex.value}`}
-                index={currentKeyframeIndex.value}
-                overlays={overlays}
-                interpolate={false}
-                currentTime={currentTime}
-                videoLayout={videoLayout}
-                videoNaturalWidthShared={videoNaturalWidthShared}
-                videoNaturalHeightShared={videoNaturalHeightShared}
-              />
-            );
-          }
-
-          return null;
-        })()} */}
-
-        {canRenderOverlay &&
-        Array.isArray(overlays?.value) &&
-        overlays.value.length > 0 &&
-        (() => {
-          const layout = videoLayout?.value;
-          const naturalW = videoNaturalWidthShared?.value;
-          const naturalH = videoNaturalHeightShared?.value;
-
-          const canRender =
-            layout &&
-            Number.isFinite(layout.frameWidth) &&
-            Number.isFinite(layout.frameHeight) &&
-            naturalW > 0 &&
-            naturalH > 0;
-
-          if (!canRender) {
-            console.warn('🚫 MarkerOverlay not rendered: layout or natural size not ready');
-            return null;
-          }
-
-          console.log('🧩 overlays.value at render:', JSON.stringify(overlays.value));
-
-          if (isPreview?.value) {
-            return overlays.value.map((kf, i) => (
-              <MarkerOverlay
-                key={`marker-preview-${i}`}
-                index={i}
-                overlays={overlays}
-                interpolate={true}
-                currentTime={currentTime}
-                videoLayout={videoLayout}
-                videoNaturalWidthShared={videoNaturalWidthShared}
-                videoNaturalHeightShared={videoNaturalHeightShared}
-              />
-            ));
-          } else if (
-            Number.isInteger(currentKeyframeIndex?.value) &&
-            overlays.value?.[currentKeyframeIndex.value] &&
-            Number.isFinite(overlays.value[currentKeyframeIndex.value]?.timestamp)
-          ) {
-            return (
-              <MarkerOverlay
-                key={`marker-edit-${currentKeyframeIndex.value}`}
-                index={currentKeyframeIndex.value}
-                overlays={overlays}
-                interpolate={false}
-                currentTime={currentTime}
-                videoLayout={videoLayout}
-                videoNaturalWidthShared={videoNaturalWidthShared}
-                videoNaturalHeightShared={videoNaturalHeightShared}
-              />
-            );
-          }
-
-          return null;
-        })()}
+            ))
+          ) : (
+            /* ----- Edit: only the active keyframe ----- */
+            <MarkerOverlay
+              key="marker-edit"
+              currentKeyframeIndex={currentKeyframeIndex}  // ← shared value (reactive)
+              overlays={overlays}
+              interpolate={false}
+              currentTime={currentTime}
+              videoLayout={videoLayout}
+              videoNaturalWidthShared={videoNaturalWidthShared}
+              videoNaturalHeightShared={videoNaturalHeightShared}
+            />
+          )
+        )}
       </Animated.View>
     </GestureDetector>
   );

@@ -1,9 +1,11 @@
 // /src/screens/VideoEditor/SmartTrackingScreen.js
 
-import React, { useEffect, useRef, useState } from 'react';
+// import React, { useEffect, useRef, useState } from 'react';
+import React from 'react';
 import { View, StyleSheet, SafeAreaView, StatusBar } from 'react-native';
 import SmartTrackingEditor from '../../components/SmartTrackingEditor';
 import { trackingCallbackRef } from '../../utils/trackingCallbackRegistry';
+import { runOnUI } from 'react-native-reanimated';
 
 const SmartTrackingScreen = ({ route, navigation }) => {
   const {
@@ -16,16 +18,18 @@ const SmartTrackingScreen = ({ route, navigation }) => {
     onTrackingComplete, // callback to receive final keyframes
   } = route.params || {};
 
-  const [currentKeyframes, setCurrentKeyframes] = useState(markerKeyframes);
-
   const handleFinish = (finalKeyframes) => {
-    setCurrentKeyframes(finalKeyframes);
-
+    // Send the edits back to Video-Editor
     if (trackingCallbackRef.current) {
         trackingCallbackRef.current(finalKeyframes);
-        trackingCallbackRef.current = null; 
+        trackingCallbackRef.current = null;
     }
+    console.log(
+        '📥 Received keyframes in SmartTrackingScreen:',
+        JSON.stringify(finalKeyframes),
+    );
 
+    // Return to the Video-Editor screen
     navigation.goBack();
   };
 
@@ -39,7 +43,7 @@ const SmartTrackingScreen = ({ route, navigation }) => {
           trimEnd={trimEnd}
           aspectRatio={aspectRatio}
           smartZoomKeyframes={smartZoomKeyframes}
-          markerKeyframes={currentKeyframes}
+          markerKeyframes={markerKeyframes}  
           onFinish={handleFinish}
         />
       </View>
