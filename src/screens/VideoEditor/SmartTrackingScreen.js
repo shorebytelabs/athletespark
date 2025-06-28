@@ -5,7 +5,7 @@ import React from 'react';
 import { View, StyleSheet, SafeAreaView, StatusBar } from 'react-native';
 import SmartTrackingEditor from '../../components/SmartTrackingEditor';
 import { trackingCallbackRef } from '../../utils/trackingCallbackRegistry';
-import { runOnUI } from 'react-native-reanimated';
+import { SPOTLIGHT_MODES } from '../../constants/playerSpotlight'; 
 
 const SmartTrackingScreen = ({ route, navigation }) => {
   const {
@@ -15,14 +15,15 @@ const SmartTrackingScreen = ({ route, navigation }) => {
     aspectRatio,
     smartZoomKeyframes, // may affect transform playback
     markerKeyframes = [], // initial marker overlay keyframes if editing
+    spotlightMode = SPOTLIGHT_MODES.GUIDED,   
     onTrackingComplete, // callback to receive final keyframes
   } = route.params || {};
 
   const handleFinish = (finalKeyframes) => {
     // Send the edits back to Video-Editor
     if (trackingCallbackRef.current) {
-        trackingCallbackRef.current(finalKeyframes);
-        trackingCallbackRef.current = null;
+        trackingCallbackRef.current(finalKeyframes, spotlightMode);
+        // trackingCallbackRef.current = null;
     }
     console.log(
         '📥 Received keyframes in SmartTrackingScreen:',
@@ -44,6 +45,7 @@ const SmartTrackingScreen = ({ route, navigation }) => {
           aspectRatio={aspectRatio}
           smartZoomKeyframes={smartZoomKeyframes}
           markerKeyframes={markerKeyframes}  
+          spotlightMode={spotlightMode}       
           onFinish={handleFinish}
         />
       </View>

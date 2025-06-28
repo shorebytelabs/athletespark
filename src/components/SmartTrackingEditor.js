@@ -3,18 +3,20 @@
 import React, { useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import VideoPlaybackCanvas from './VideoPlaybackCanvas';
-import { Gesture } from 'react-native-gesture-handler';
-import { useSharedValue, runOnJS } from 'react-native-reanimated';
-import { runOnUI } from 'react-native-reanimated';
+import { useSharedValue, runOnJS, useDerivedValue, useAnimatedReaction, } from 'react-native-reanimated';
+import { runOnUI, withTiming, } from 'react-native-reanimated';
 import { useRoute } from '@react-navigation/native';
+import { SPOTLIGHT_MODES } from '../constants/playerSpotlight'; 
+import Slider from '@react-native-community/slider';
 
-const SmartTrackingEditor = ({
+const SmartTrackingEditor = ({ 
   clip,
   trimStart,
   trimEnd,
   aspectRatio,
   smartZoomKeyframes,
   markerKeyframes,
+  spotlightMode = SPOTLIGHT_MODES.GUIDED,
   onFinish,
 }) => {
   const videoRef = useRef(null);
@@ -30,14 +32,24 @@ const SmartTrackingEditor = ({
   const videoNaturalWidthShared = useSharedValue(0);
   const videoNaturalHeightShared = useSharedValue(0);
   const OUTPUT_ASPECT_RATIO = aspectRatio?.ratio ?? 9 / 16;
+  const freezeProgress = useSharedValue(0);
 
   /* ------------------------------------------------------------- */
   /* 1️⃣  Create overlays shared value *with* the incoming keyframes */
   /* ------------------------------------------------------------- */
+  const isIntro = spotlightMode === SPOTLIGHT_MODES.INTRO;
+
   const overlays = useSharedValue(
-    Array.isArray(markerKeyframes) && markerKeyframes.length
-        ? markerKeyframes.map(kf => ({ ...kf }))          // fresh copy
-        : [{ timestamp: trimStart, x: 100, y: 300, markerType: 'circle' }]
+    isIntro
+        ? [{
+            timestamp: trimStart ?? 0,
+            x: 0, y: 0,
+            markerType: 'circle',
+            freezeDuration: 1.0,   // default 1 s
+        }]
+        : (Array.isArray(markerKeyframes) && markerKeyframes.length
+            ? markerKeyframes.map(kf => ({ ...kf }))
+            : [{ timestamp: trimStart, x: 100, y: 300, markerType: 'circle' }])
   );
 
   /* ---------------------------------------------------------------- */
@@ -196,6 +208,74 @@ const SmartTrackingEditor = ({
     console.log('📏 Layout set:', layoutObject);
   };
 
+  /* ===== Intro-Spotlight freeze-frame ===== */
+  const freezeDuration = overlays.value[0]?.freezeDuration ?? 1;
+  const seekTo = (t) => {
+    if (videoRef.current?.seek) {
+        videoRef.current.seek(t);
+    }
+    };
+
+  const isIntroPreview = useDerivedValue(() =>
+    isIntro && isPreview.value
+    );
+
+  useAnimatedReaction(
+    () => isIntroPreview.value,
+    (previewing) => {
+        if (!previewing) return;
+
+        // 0️⃣ reset to first frame & pause (seek on JS thread)
+        runOnJS(seekTo)(trimStart);
+        currentTime.value = trimStart;
+        paused.value      = true;
+
+        // 1️⃣ animate dummy value → when finished, un-pause
+        freezeProgress.value = 0;   // reset
+        freezeProgress.value = withTiming(
+        1,
+        { duration: freezeDuration * 1000 },
+        (/* finished */) => {
+            'worklet';
+            paused.value = false;   // runs on UI thread, perfectly shareable
+        }
+        );
+    },
+    []
+  );
+
+//   useAnimatedReaction(
+//     () => isIntroPreview.value,
+//     (previewing) => {
+//         if (!previewing) return;
+
+//         // 0 — reset to first frame & pause
+//         // runOnJS(seekTo)(trimStart);
+//         runOnJS(seekTo)(trimStart, videoRef);   
+//         currentTime.value = trimStart;
+//         paused.value = true;
+
+//         // 1 — after freezeDuration resume playback
+//         // runOnJS(setTimeout)(() => {
+//         // paused.value = false;
+//         // }, freezeDuration * 1000);
+
+//         // runOnJS(() => {
+//         //     setTimeout(() => {
+//         //         runOnUI(() => { 'worklet'; paused.value = false; })();
+//         //     }, freezeDuration * 1000); 
+//         // })();
+
+//         const ms = freezeDuration * 1000;
+//         runOnJS((delay, sharedPaused) => {
+//             setTimeout(() => {
+//             sharedPaused.value = false;   // write from JS thread
+//             }, delay);
+//         })(ms, paused);                   // pass the SharedValue itself
+//     },
+//     []
+//  );
+
   return (
     <View style={styles.container}>
         <View
@@ -290,6 +370,23 @@ const SmartTrackingEditor = ({
         >
             <Text style={styles.buttonText}>✅ Done</Text>
         </TouchableOpacity>
+        {isIntro && (
+            <>
+                <Text style={{ color:'#fff', textAlign:'center', marginTop:4 }}>
+                Freeze&nbsp;Duration: {overlays.value[0].freezeDuration.toFixed(1)} s
+                </Text>
+                <Slider
+                style={{ marginHorizontal:20 }}
+                minimumValue={0.5}
+                maximumValue={2.0}
+                step={0.1}
+                value={overlays.value[0].freezeDuration}
+                onValueChange={(val) => {
+                    overlays.value = [{ ...overlays.value[0], freezeDuration: val }];
+                }}
+                />
+            </>
+        )}
         </View>
 
         {/* Gesture Mode Buttons */}

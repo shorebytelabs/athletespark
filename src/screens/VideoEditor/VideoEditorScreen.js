@@ -26,6 +26,7 @@ import VideoEditorNativeModule from '../../nativemodules/VideoEditorNativeModule
 import Animated, { useSharedValue, runOnUI } from 'react-native-reanimated';
 import VideoPlaybackCanvas from '../../components/VideoPlaybackCanvas';
 import { trackingCallbackRef } from '../../utils/trackingCallbackRegistry';
+import { SPOTLIGHT_MODES } from '../../constants/playerSpotlight'; 
 
 const defaultCategories = [
   'Goal',
@@ -75,7 +76,6 @@ const saveProject = async (patch) => {
 
   const [clips, setClips] = useState(project?.clips ?? []);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [trackingEnabled, setTrackingEnabled] = useState(false);
 
   const [customCategories, setCustomCategories] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
@@ -104,8 +104,13 @@ const saveProject = async (patch) => {
   const videoNaturalWidthShared = useSharedValue(null);
   const videoNaturalHeightShared = useSharedValue(null);
   const isPreview = useSharedValue(true);
-  
   const [hasTracking, setHasTracking] = React.useState(false);
+  const [trackingEnabled, setTrackingEnabled] = useState(false);
+  const [spotlightModalOpen, setSpotlightModalOpen] = useState(false);   
+
+  const [spotlightMode, setSpotlightMode] = useState(
+    currentClip?.spotlightMode ?? null
+  );
 
   let containerWidth, containerHeight;
 
@@ -253,6 +258,19 @@ const saveProject = async (patch) => {
       setSafeUri(null); // Clear URI on unmount or before update
     };
   }, [currentClip?.uri]);
+
+  // Collect initial marker keyframes for SmartTracking
+  const collectInitialMarkerKeyframes = () => {
+    if (latestMarkerKeyframesRef.current?.length) {
+      return latestMarkerKeyframesRef.current.map(k => ({ ...k }));
+    } else if (Array.isArray(overlaysShared.value) && overlaysShared.value.length) {
+      return overlaysShared.value.map(k => ({ ...k }));
+    } else if (Array.isArray(currentClip?.markerKeyframes) && currentClip.markerKeyframes.length) {
+      return currentClip.markerKeyframes.map(k => ({ ...k }));
+    } else {
+      return [];
+    }
+  };
 
   // Save trim info whenever trim changes
   const handleTrimChange = async (start, end) => {
@@ -428,15 +446,20 @@ const saveProject = async (patch) => {
     }
   }, [currentClip?.markerKeyframes]);
 
-  /* 🔄 keep the “hasTracking” flag in sync as well */
+  /* 🔄 keep Player-Spotlight state in sync with the current clip */
   useEffect(() => {
-      setHasTracking(
-        Array.isArray(currentClip?.markerKeyframes) &&
-        currentClip.markerKeyframes.length > 0
-      );
-    }, [currentClip?.markerKeyframes]);
+    const has = Array.isArray(currentClip?.markerKeyframes) &&
+                currentClip.markerKeyframes.length > 0;
 
-    useEffect(() => {
+    setHasTracking(has);
+    setSpotlightMode(currentClip?.spotlightMode ?? null);
+  }, [
+    currentClip?.id,
+    currentClip?.markerKeyframes,
+    currentClip?.spotlightMode,
+  ]);
+
+  useEffect(() => {
     if (!currentClip) return;
 
     const kf = Array.isArray(currentClip.markerKeyframes)
@@ -624,17 +647,7 @@ const saveProject = async (patch) => {
     * ‣ currentClip.markerKeyframes      → last on-disk copy
     */
 
-    let initial = [];
-
-    if (latestMarkerKeyframesRef.current?.length) {
-      initial = latestMarkerKeyframesRef.current.map(k => ({ ...k }));
-    } else if (Array.isArray(overlaysShared.value) &&
-              overlaysShared.value.length) {
-      initial = overlaysShared.value.map(k => ({ ...k }));
-    } else if (Array.isArray(currentClip?.markerKeyframes) &&
-              currentClip.markerKeyframes.length) {
-      initial = currentClip.markerKeyframes.map(k => ({ ...k }));
-    }
+    const initial = collectInitialMarkerKeyframes();
 
     console.log('🔗 Pushing to SmartTracking with', JSON.stringify(initial));
 
@@ -642,14 +655,17 @@ const saveProject = async (patch) => {
     * 2️⃣  Callback the editor will invoke when the user taps “Save”
     * -----------------------------------------------------------
     */
-    trackingCallbackRef.current = async (updated) => {
+    trackingCallbackRef.current = async (updated, mode) => {
       /* 2.1  Update React state */
       const nextClips              = [...clips];
       nextClips[currentIndex]      = {
         ...nextClips[currentIndex],
         markerKeyframes: updated,
+        spotlightMode: mode,  
       };
       setClips(nextClips);
+      setSpotlightMode(mode);
+      saveProject({ ...project, clips: nextClips }).catch(console.warn);
 
       /* 2.2  Update shared value -> canvas refresh happens instantly */
       runOnUI(kfs => { overlaysShared.value = kfs; })
@@ -684,6 +700,30 @@ const saveProject = async (patch) => {
       aspectRatio,
       markerKeyframes: initial,   
       startInEdit: true,
+      spotlightMode: SPOTLIGHT_MODES.GUIDED,   
+    });
+  };
+
+  const handlePlayerSpotlight = (mode) => {
+    /* If the user picked Guided Follow, just reuse the rock-solid
+     handleSmartTracking() flow – it already wires up the callback
+     and persistence logic. */
+    if (mode === SPOTLIGHT_MODES.GUIDED) {
+      handleSmartTracking();
+      return;         
+    }
+
+    const initial = collectInitialMarkerKeyframes();   
+
+    navigation.navigate('SmartTracking', {
+      project,
+      clip: currentClip,
+      trimStart,
+      trimEnd,
+      aspectRatio,
+      markerKeyframes: initial,
+      spotlightMode: mode,         
+      startInEdit: false
     });
   };
 
@@ -917,47 +957,114 @@ return (
           )}
         </View>
 
-        {/* Object Tracking Control */}
+        {/* Player Spotlight Control */}
         <View style={styles.toggleRow}>
-          <Text style={styles.subtitle}>Tracking:</Text>
-          {!hasTracking ? (  
-            <TouchableOpacity
-              // onPress={() => handleSmartTracking(currentClip?.markerKeyframes ?? [])}
-              onPress={() => handleSmartTracking([...overlaysShared.value])}
-              style={styles.primaryButton}
-            >
-              <Text style={styles.buttonText}>Set Up</Text>
-            </TouchableOpacity>
-          ) : (
-            <View style={styles.actionGroup}>
-              <TouchableOpacity
-                // onPress={() => handleSmartTracking(currentClip.markerKeyframes)}
-                onPress={() => handleSmartTracking([...overlaysShared.value])}
-                style={styles.secondaryButton}
-              >
-                <Text style={styles.buttonText}>Edit</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={async () => {
-                  const updated = [...clips];
-                  updated[currentIndex].markerKeyframes = [];
-                  setClips(updated);
-                  overlaysShared.value = []; 
-                  setHasTracking(false);     
-                  latestMarkerKeyframesRef.current = [];   
-                  try {
-                    await saveProject({ ...project, clips: updated });
-                  } catch (err) {
-                    console.warn('⚠️  failed to persist markerKeyframes reset', err);
-                  }
-                }}
-                style={styles.secondaryButton}
-              >
-                <Text style={styles.buttonText}>Reset</Text>
-              </TouchableOpacity>
-            </View>
+        {/* Left side: label + status stacked vertically */}
+        <View style={{ flexDirection: 'column' }}>
+          <Text style={styles.subtitle}>Player Spotlight:</Text>
+
+          {(spotlightMode === SPOTLIGHT_MODES.GUIDED ||
+            spotlightMode === SPOTLIGHT_MODES.INTRO) && (
+            <Text style={{ color: '#aaa', fontSize: 12, marginTop: 2 }}>
+              {spotlightMode === SPOTLIGHT_MODES.GUIDED
+                ? 'Guided Follow'
+                : 'Intro Spotlight'}{' '}
+              configured
+            </Text>
           )}
         </View>
+
+        {/* Right side: buttons or setup */}
+        {spotlightMode === SPOTLIGHT_MODES.GUIDED ||
+        spotlightMode === SPOTLIGHT_MODES.INTRO ? (
+          /* ---- Already configured ---- */
+          <View style={styles.actionGroup}>
+            {/* Edit */}
+            <TouchableOpacity
+              onPress={() =>
+                spotlightMode === SPOTLIGHT_MODES.GUIDED
+                  ? handleSmartTracking([...overlaysShared.value])
+                  : handlePlayerSpotlight(SPOTLIGHT_MODES.INTRO) // intro re-edit
+              }
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.buttonText}>Edit</Text>
+            </TouchableOpacity>
+
+            {/* Reset */}
+            <TouchableOpacity
+              onPress={async () => {
+                const updated = [...clips];
+                updated[currentIndex] = {
+                  ...updated[currentIndex],
+                  markerKeyframes: [],
+                  introSpotlight: null,
+                  spotlightMode: null,
+                };
+                setClips(updated);
+                overlaysShared.value = [];
+                setHasTracking(false);
+                setSpotlightMode(null);
+                latestMarkerKeyframesRef.current = [];
+
+                try {
+                  await saveProject({ ...project, clips: updated });
+                } catch (err) {
+                  console.warn('⚠️  failed to persist spotlight reset', err);
+                }
+              }}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.buttonText}>Reset</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          /* ---- Nothing configured yet ---- */
+          <TouchableOpacity
+            onPress={() => setSpotlightModalOpen(true)}
+            style={styles.primaryButton}
+          >
+            <Text style={styles.buttonText}>Set Up</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+        {/* ──────────────────────────────────────────────── */}
+        <Modal visible={spotlightModalOpen} transparent animationType="fade">
+          {/* Dim backdrop */}
+          <TouchableOpacity
+            style={styles.backdrop}
+            activeOpacity={1}
+            onPress={() => setSpotlightModalOpen(false)}
+          />
+          {/* Action sheet */}
+          <View style={styles.spotlightSheet}>
+            {[
+              {
+                label: 'Intro Spotlight',
+                mode: SPOTLIGHT_MODES.INTRO,
+                subtitle: 'Best for quick plays. Freeze the frame and point out who to watch.',
+              },
+              {
+                label: 'Guided Follow',
+                mode: SPOTLIGHT_MODES.GUIDED,
+                subtitle: 'Track the athlete across the clip by placing markers on key frames.',
+              },
+            ].map(({ label, mode, subtitle }) => (
+              <TouchableOpacity
+                key={mode}
+                onPress={() => {
+                  setSpotlightModalOpen(false);
+                  handlePlayerSpotlight(mode);     // 🆕 helper below 
+                }}
+                style={styles.sheetRow}
+              >
+                <Text style={styles.sheetTitle}>{label}</Text>
+                <Text style={styles.sheetSub}>{subtitle}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Modal>
 
         {/* Export */}
         <View style={styles.exportControls}>
@@ -1252,5 +1359,26 @@ const styles = StyleSheet.create({
     height: 4,
     backgroundColor: "white", //'#fff',
     borderRadius: 2,
+  },
+  backdrop: { 
+    flex:1, 
+    backgroundColor:'rgba(0,0,0,0.4)' 
+  },
+  spotlightSheet: {
+    position:'absolute', bottom:0, left:0, right:0,
+    backgroundColor:'#222', paddingVertical:12, paddingHorizontal:16,
+    borderTopLeftRadius:12, borderTopRightRadius:12,
+  },
+  sheetRow:{ 
+    paddingVertical:12 
+  },
+  sheetTitle:{ 
+    color:'#fff', 
+    fontSize:16, 
+    fontWeight:'600' 
+  },
+  sheetSub:{ 
+    color:'#aaa', 
+    fontSize:12 
   },
 });
