@@ -1,6 +1,6 @@
 // /src/components/SmartTrackingEditor.js
 
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import VideoPlaybackCanvas from './VideoPlaybackCanvas';
 import { useSharedValue, runOnJS, useDerivedValue, useAnimatedReaction, } from 'react-native-reanimated';
@@ -8,6 +8,7 @@ import { runOnUI, withTiming, } from 'react-native-reanimated';
 import { useRoute } from '@react-navigation/native';
 import { SPOTLIGHT_MODES } from '../constants/playerSpotlight'; 
 import Slider from '@react-native-community/slider';
+import { colors } from '../theme/theme';
 
 const SmartTrackingEditor = ({ 
   clip,
@@ -33,7 +34,7 @@ const SmartTrackingEditor = ({
   const videoNaturalHeightShared = useSharedValue(0);
   const OUTPUT_ASPECT_RATIO = aspectRatio?.ratio ?? 9 / 16;
   const freezeProgress = useSharedValue(0);
-
+  
   /* ------------------------------------------------------------- */
   /* 1️⃣  Create overlays shared value *with* the incoming keyframes */
   /* ------------------------------------------------------------- */
@@ -51,6 +52,20 @@ const SmartTrackingEditor = ({
             ? markerKeyframes.map(kf => ({ ...kf }))
             : [{ timestamp: trimStart, x: 100, y: 300, markerType: 'circle' }])
   );
+
+  // ① Local React state to mirror the shared value
+  const [freezeDurUI, setFreezeDurUI] =
+    useState(overlays.value[0]?.freezeDuration ?? 1);
+  const freezeDurationShared = useSharedValue(freezeDurUI);
+
+  // ② Bridge SharedValue → React for live label updates
+  useAnimatedReaction(
+    () => freezeDurationShared.value,
+    (val, prev) => {
+        if (val !== prev) runOnJS(setFreezeDurUI)(val);
+    },
+    []
+ );
 
   /* ---------------------------------------------------------------- */
   /* 2️⃣  Keep overlays/currentTime in-sync when markerKeyframes change */
@@ -244,38 +259,6 @@ const SmartTrackingEditor = ({
     []
   );
 
-//   useAnimatedReaction(
-//     () => isIntroPreview.value,
-//     (previewing) => {
-//         if (!previewing) return;
-
-//         // 0 — reset to first frame & pause
-//         // runOnJS(seekTo)(trimStart);
-//         runOnJS(seekTo)(trimStart, videoRef);   
-//         currentTime.value = trimStart;
-//         paused.value = true;
-
-//         // 1 — after freezeDuration resume playback
-//         // runOnJS(setTimeout)(() => {
-//         // paused.value = false;
-//         // }, freezeDuration * 1000);
-
-//         // runOnJS(() => {
-//         //     setTimeout(() => {
-//         //         runOnUI(() => { 'worklet'; paused.value = false; })();
-//         //     }, freezeDuration * 1000); 
-//         // })();
-
-//         const ms = freezeDuration * 1000;
-//         runOnJS((delay, sharedPaused) => {
-//             setTimeout(() => {
-//             sharedPaused.value = false;   // write from JS thread
-//             }, delay);
-//         })(ms, paused);                   // pass the SharedValue itself
-//     },
-//     []
-//  );
-
   return (
     <View style={styles.container}>
         <View
@@ -344,7 +327,7 @@ const SmartTrackingEditor = ({
         </View>
 
         {/* Controls */}
-        <View style={styles.controls}>
+        {/* <View style={styles.controls}> */}
         {/* <TouchableOpacity onPress={handlePrevKeyframe} style={styles.button}>
             <Text style={styles.buttonText}>⏮️ Prev</Text>
         </TouchableOpacity>
@@ -359,34 +342,62 @@ const SmartTrackingEditor = ({
             {paused.value ? '▶️ Preview' : '⏸️ Pause'}
             </Text>
         </TouchableOpacity> */}
-        <TouchableOpacity
-            onPress={() => {
-            if (typeof onFinish === 'function') {
-                onFinish(overlays.value);
-                console.log("📤 Finishing editor with overlays.value:", JSON.stringify(overlays.value));
-            }
-            }}
-            style={[styles.button, styles.finishButton]}
-        >
-            <Text style={styles.buttonText}>✅ Done</Text>
-        </TouchableOpacity>
-        {isIntro && (
-            <>
-                <Text style={{ color:'#fff', textAlign:'center', marginTop:4 }}>
-                Freeze&nbsp;Duration: {overlays.value[0].freezeDuration.toFixed(1)} s
-                </Text>
-                <Slider
-                style={{ marginHorizontal:20 }}
-                minimumValue={0.5}
-                maximumValue={2.0}
-                step={0.1}
-                value={overlays.value[0].freezeDuration}
-                onValueChange={(val) => {
-                    overlays.value = [{ ...overlays.value[0], freezeDuration: val }];
+
+        <View style={[styles.controls,isIntro && { flexDirection: 'column', alignItems: 'center' },]}>
+            <TouchableOpacity
+                onPress={() => {
+                if (typeof onFinish === 'function') {
+                    onFinish(overlays.value);
+                    console.log("📤 Finishing editor with overlays.value:", JSON.stringify(overlays.value));
+                }
                 }}
-                />
-            </>
-        )}
+                style={[styles.button, styles.finishButton]}
+            >
+                <Text style={styles.buttonText}>✅ Done</Text>
+            </TouchableOpacity>
+            {isIntro && (
+                <>
+                    <Text style={{ color:'#fff', textAlign:'center', marginTop:4 }}>
+                    {/* Freeze&nbsp;Duration: {overlays.value[0].freezeDuration.toFixed(1)} s */}
+                    Freeze Duration: {freezeDurUI.toFixed(1)} s
+                    </Text>
+                    <Slider
+                        style={{ width: '80%', height: 40 }}
+                        thumbTintColor={colors.accent1} //"#ffffff"
+                        minimumTrackTintColor={colors.accent1}//"#1abc9c"
+                        maximumTrackTintColor="#555"
+                        minimumValue={0.5}
+                        maximumValue={2.0}
+                        step={0.1}
+                        // value={overlays.value[0].freezeDuration}
+                        value={freezeDurUI}
+                        onValueChange={(val) => {
+                            setFreezeDurUI(val);
+                            // overlays.value = [{ ...overlays.value[0], freezeDuration: val }];
+                            freezeDurationShared.value = val;
+                            overlays.value = [{ ...overlays.value[0], freezeDuration: val }];
+                        }}
+                    />
+                    <Slider
+                        minimumValue={trimStart}
+                        maximumValue={trimEnd}
+                        step={0.01}
+                        value={overlays.value[0].timestamp}
+                        onValueChange={(val) => {
+                            overlays.value = [{ ...overlays.value[0], timestamp: val }];
+                            currentTime.value = val;
+                            videoRef.current?.seek?.(val);
+                        }}
+                        style={{ width: '80%', height: 40, marginTop: 12 }}
+                        thumbTintColor="#fff"
+                        minimumTrackTintColor="#3498db"
+                        maximumTrackTintColor="#555"
+                    />
+                    <Text style={{ color: '#aaa', fontSize: 12 }}>
+                        Freeze frame at: {overlays.value[0].timestamp.toFixed(2)}s
+                    </Text>
+                </>
+            )}
         </View>
 
         {/* Gesture Mode Buttons */}
