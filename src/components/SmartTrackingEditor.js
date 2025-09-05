@@ -1,7 +1,7 @@
 // /src/components/SmartTrackingEditor.js
 
 import React, { useRef, useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, ScrollView } from 'react-native';
 import VideoPlaybackCanvas from './VideoPlaybackCanvas';
 import { useSharedValue, runOnJS, useDerivedValue, useAnimatedReaction, } from 'react-native-reanimated';
 import { runOnUI, withTiming, } from 'react-native-reanimated';
@@ -379,28 +379,30 @@ const SmartTrackingEditor = ({
         </View>
 
         {/* Controls */}
-        {/* <View style={styles.controls}> */}
-        {/* <TouchableOpacity onPress={handlePrevKeyframe} style={styles.button}>
-            <Text style={styles.buttonText}>⏮️ Prev</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleAddKeyframe} style={styles.button}>
-            <Text style={styles.buttonText}>➕ Add Keyframe</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleNextKeyframe} style={styles.button}>
-            <Text style={styles.buttonText}>⏭️ Next</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handlePlayPreview} style={styles.button}>
-            <Text style={styles.buttonText}>
-            {paused.value ? '▶️ Preview' : '⏸️ Pause'}
-            </Text>
-        </TouchableOpacity> */}
-
-        <View style={[styles.controls,isIntro && { flexDirection: 'column', alignItems: 'center' },]}>
+        <ScrollView 
+            style={{ backgroundColor: '#111' }}
+            contentContainerStyle={[
+                isIntro && { flexDirection: 'column', alignItems: 'center' },
+                { justifyContent: 'center', paddingVertical: 10, paddingBottom: 20 }
+            ]}
+            showsVerticalScrollIndicator={false}
+        >
             <TouchableOpacity
                 onPress={() => {
                 if (typeof onFinish === 'function') {
-                    onFinish(overlays.value);
-                    console.log("📤 Finishing editor with overlays.value:", JSON.stringify(overlays.value));
+                    if (isIntro) {
+                        // In intro mode, pass both marker and zoom data
+                        const result = {
+                            markerKeyframes: overlays.value,
+                            zoomKeyframes: zoomKeyframesShared.value
+                        };
+                        onFinish(result);
+                        console.log("📤 Finishing intro editor with:", JSON.stringify(result));
+                    } else {
+                        // In guided mode, just pass marker data
+                        onFinish(overlays.value);
+                        console.log("📤 Finishing guided editor with overlays.value:", JSON.stringify(overlays.value));
+                    }
                 }
                 }}
                 style={[styles.button, styles.finishButton]}
@@ -409,83 +411,166 @@ const SmartTrackingEditor = ({
             </TouchableOpacity>
             {isIntro && (
                 <>
-                    <Text style={{ color:'#fff', textAlign:'center', marginTop:4 }}>
-                    {/* Freeze&nbsp;Duration: {overlays.value[0].freezeDuration.toFixed(1)} s */}
-                    Freeze Duration: {freezeDurUI.toFixed(1)} s
-                    </Text>
-                    <Slider
-                        style={{ width: '80%', height: 40 }}
-                        thumbTintColor={colors.accent1} //"#ffffff"
-                        minimumTrackTintColor={colors.accent1}//"#1abc9c"
-                        maximumTrackTintColor="#555"
-                        minimumValue={0.5}
-                        maximumValue={2.0}
-                        step={0.1}
-                        // value={overlays.value[0].freezeDuration}
-                        value={freezeDurUI}
-                        onValueChange={(val) => {
-                            setFreezeDurUI(val);
-                            // overlays.value = [{ ...overlays.value[0], freezeDuration: val }];
-                            freezeDurationShared.value = val;
-                            overlays.value = [{ ...overlays.value[0], freezeDuration: val }];
-                        }}
-                    />
-                    <Slider
-                        minimumValue={trimStart}
-                        maximumValue={trimEnd}
-                        step={0.01}
-                        value={frameTimestampUI}
-                        onValueChange={(val) => {
-                            setFrameTimestampUI(val);
-                            overlays.value = [{ ...overlays.value[0], timestamp: val }];
-                            currentTime.value = val;
-                            videoRef.current?.seek?.(val);
-                        }}
-                        style={{ width: '80%', height: 40, marginTop: 12 }}
-                        thumbTintColor="#fff"
-                        minimumTrackTintColor="#3498db"
-                        maximumTrackTintColor="#555"
-                    />
-                    <Text style={{ color: '#aaa', fontSize: 12 }}>
-                        Freeze frame at: {frameTimestampUI.toFixed(2)}s
-                    </Text>
+                    {/* Frame Selection Section */}
+                    <View style={{ width: '90%', marginBottom: 20 }}>
+                        <Text style={{ color: '#fff', textAlign: 'center', marginBottom: 8, fontSize: 16, fontWeight: '600' }}>
+                            Select Frame
+                        </Text>
+                        <Slider
+                            minimumValue={trimStart}
+                            maximumValue={trimEnd}
+                            step={0.01}
+                            value={frameTimestampUI}
+                            onValueChange={(val) => {
+                                setFrameTimestampUI(val);
+                                overlays.value = [{ ...overlays.value[0], timestamp: val }];
+                                currentTime.value = val;
+                                videoRef.current?.seek?.(val);
+                            }}
+                            style={{ width: '100%', height: 40 }}
+                            thumbTintColor="#fff"
+                            minimumTrackTintColor="#3498db"
+                            maximumTrackTintColor="#555"
+                        />
+                        <Text style={{ color: '#aaa', fontSize: 12, textAlign: 'center', marginTop: 4 }}>
+                            Freeze frame at: {frameTimestampUI.toFixed(2)}s
+                        </Text>
+                    </View>
+
+                    {/* Freeze Duration Section */}
+                    <View style={{ width: '90%', marginBottom: 20 }}>
+                        <Text style={{ color: '#fff', textAlign: 'center', marginBottom: 12, fontSize: 16, fontWeight: '600' }}>
+                            Freeze Duration
+                        </Text>
+                        <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+                            {[0.5, 0.7, 1.0].map((duration) => (
+                                <TouchableOpacity
+                                    key={duration}
+                                    onPress={() => {
+                                        setFreezeDurUI(duration);
+                                        freezeDurationShared.value = duration;
+                                        overlays.value = [{ ...overlays.value[0], freezeDuration: duration }];
+                                        // Instant preview at selected frame
+                                        videoRef.current?.seek?.(frameTimestampUI);
+                                        currentTime.value = frameTimestampUI;
+                                    }}
+                                    style={{
+                                        paddingHorizontal: 12,
+                                        paddingVertical: 6,
+                                        backgroundColor: Math.abs(freezeDurUI - duration) < 0.1 ? colors.accent1 : '#333',
+                                        borderRadius: 16,
+                                        borderWidth: 1,
+                                        borderColor: Math.abs(freezeDurUI - duration) < 0.1 ? colors.accent1 : '#555',
+                                    }}
+                                >
+                                    <Text style={{ 
+                                        color: Math.abs(freezeDurUI - duration) < 0.1 ? '#000' : '#fff',
+                                        fontSize: 12,
+                                        fontWeight: '500'
+                                    }}>
+                                        {duration}s
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
+                            <TouchableOpacity
+                                onPress={() => {
+                                    // TODO: Implement custom duration modal
+                                    console.log('Custom duration requested');
+                                }}
+                                style={{
+                                    paddingHorizontal: 12,
+                                    paddingVertical: 6,
+                                    backgroundColor: '#444',
+                                    borderRadius: 16,
+                                    borderWidth: 1,
+                                    borderColor: '#666',
+                                }}
+                            >
+                                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>
+                                    Custom
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    </View>
                 </>
             )}
-        </View>
 
         {/* Gesture Mode Buttons */}
-        <View style={{ flexDirection: 'row', justifyContent: 'center', marginVertical: 8 }}>
-        <TouchableOpacity
-            onPress={() => {
-            gestureModeShared.value = 'zoom';
-            // Set current time to the current zoom keyframe timestamp
-            const currentZoomKf = zoomKeyframesShared.value[currentZoomKeyframeIndex.value];
-            if (currentZoomKf && Number.isFinite(currentZoomKf.timestamp)) {
-                currentTime.value = currentZoomKf.timestamp;
-                videoRef.current?.seek?.(currentZoomKf.timestamp);
-            }
-            console.log('🟢 Set gesture mode to ZOOM');
-            }}
-            style={{ padding: 10, backgroundColor: '#444', marginRight: 8, borderRadius: 6 }}
-        >
-            <Text style={{ color: '#fff' }}>Zoom Mode</Text>
-        </TouchableOpacity>
+        <View style={{ width: '90%', marginBottom: 16 }}>
+            <Text style={{ color: '#fff', textAlign: 'center', marginBottom: 8, fontSize: 16, fontWeight: '600' }}>
+                Edit Mode
+            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12 }}>
+                <TouchableOpacity
+                    onPress={() => {
+                    gestureModeShared.value = 'zoom';
+                    // In intro mode, stay at the freeze frame timestamp
+                    if (isIntro) {
+                        currentTime.value = frameTimestampUI;
+                        videoRef.current?.seek?.(frameTimestampUI);
+                    } else {
+                        // In guided mode, seek to zoom keyframe timestamp
+                        const currentZoomKf = zoomKeyframesShared.value[currentZoomKeyframeIndex.value];
+                        if (currentZoomKf && Number.isFinite(currentZoomKf.timestamp)) {
+                            currentTime.value = currentZoomKf.timestamp;
+                            videoRef.current?.seek?.(currentZoomKf.timestamp);
+                        }
+                    }
+                    console.log('🟢 Set gesture mode to ZOOM');
+                    }}
+                    style={{ 
+                        paddingHorizontal: 20, 
+                        paddingVertical: 12, 
+                        backgroundColor: gestureModeShared.value === 'zoom' ? colors.accent1 : '#444', 
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: gestureModeShared.value === 'zoom' ? colors.accent1 : '#555',
+                    }}
+                >
+                    <Text style={{ 
+                        color: gestureModeShared.value === 'zoom' ? '#000' : '#fff',
+                        fontSize: 14,
+                        fontWeight: '500'
+                    }}>
+                        🔍 Zoom
+                    </Text>
+                </TouchableOpacity>
 
-        <TouchableOpacity
-            onPress={() => {
-            gestureModeShared.value = 'marker';
-            // Set current time to the current marker keyframe timestamp
-            const currentMarkerKf = overlays.value[currentKeyframeIndex.value];
-            if (currentMarkerKf && Number.isFinite(currentMarkerKf.timestamp)) {
-                currentTime.value = currentMarkerKf.timestamp;
-                videoRef.current?.seek?.(currentMarkerKf.timestamp);
-            }
-            console.log('🟠 Set gesture mode to MARKER');
-            }}
-            style={{ padding: 10, backgroundColor: '#444', borderRadius: 6 }}
-        >
-            <Text style={{ color: '#fff' }}>Marker Mode</Text>
-        </TouchableOpacity>
+                <TouchableOpacity
+                    onPress={() => {
+                    gestureModeShared.value = 'marker';
+                    // In intro mode, stay at the freeze frame timestamp
+                    if (isIntro) {
+                        currentTime.value = frameTimestampUI;
+                        videoRef.current?.seek?.(frameTimestampUI);
+                    } else {
+                        // In guided mode, seek to marker keyframe timestamp
+                        const currentMarkerKf = overlays.value[currentKeyframeIndex.value];
+                        if (currentMarkerKf && Number.isFinite(currentMarkerKf.timestamp)) {
+                            currentTime.value = currentMarkerKf.timestamp;
+                            videoRef.current?.seek?.(currentMarkerKf.timestamp);
+                        }
+                    }
+                    console.log('🟠 Set gesture mode to MARKER');
+                    }}
+                    style={{ 
+                        paddingHorizontal: 20, 
+                        paddingVertical: 12, 
+                        backgroundColor: gestureModeShared.value === 'marker' ? colors.accent1 : '#444', 
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: gestureModeShared.value === 'marker' ? colors.accent1 : '#555',
+                    }}
+                >
+                    <Text style={{ 
+                        color: gestureModeShared.value === 'marker' ? '#000' : '#fff',
+                        fontSize: 14,
+                        fontWeight: '500'
+                    }}>
+                        📍 Marker
+                    </Text>
+                </TouchableOpacity>
+            </View>
         </View>
 
         {/* Zoom Keyframe Navigation (only show in zoom mode) */}
@@ -532,24 +617,36 @@ const SmartTrackingEditor = ({
         )}
 
         {/* Marker Type Selector */}
-        <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 8 }}>
-        {['circle', 'emoji', 'gif'].map((type, idx) => (
-            <TouchableOpacity
-            key={type}
-            onPress={() => handleSelectMarkerType(type)}
-            style={{
-                padding: 10,
-                backgroundColor: '#666',
-                borderRadius: 6,
-                marginHorizontal: 4,
-            }}
-            >
-            <Text style={{ color: '#fff' }}>
-                {type === 'circle' ? '⬤' : type === 'emoji' ? '😊' : '🖼️'} {type}
+        <View style={{ width: '90%', marginBottom: 16 }}>
+            <Text style={{ color: '#fff', textAlign: 'center', marginBottom: 8, fontSize: 16, fontWeight: '600' }}>
+                Marker Type
             </Text>
-            </TouchableOpacity>
-        ))}
+            <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 8 }}>
+                {['circle', 'emoji', 'gif'].map((type, idx) => (
+                    <TouchableOpacity
+                        key={type}
+                        onPress={() => handleSelectMarkerType(type)}
+                        style={{
+                            paddingHorizontal: 16,
+                            paddingVertical: 10,
+                            backgroundColor: overlays.value[0]?.markerType === type ? colors.accent1 : '#333',
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            borderColor: overlays.value[0]?.markerType === type ? colors.accent1 : '#555',
+                        }}
+                    >
+                        <Text style={{ 
+                            color: overlays.value[0]?.markerType === type ? '#000' : '#fff',
+                            fontSize: 14,
+                            fontWeight: '500'
+                        }}>
+                            {type === 'circle' ? '⬤' : type === 'emoji' ? '😊' : '🖼️'} {type.charAt(0).toUpperCase() + type.slice(1)}
+                        </Text>
+                    </TouchableOpacity>
+                ))}
+            </View>
         </View>
+        </ScrollView>
     </View>
     );
 };
