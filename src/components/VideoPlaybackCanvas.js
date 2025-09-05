@@ -49,8 +49,22 @@ const VideoPlaybackCanvas = ({
   const markerPanStartY = useSharedValue(0);
 
   const editingMode = useDerivedValue(() => {
-    console.log("!isPreview.value: ", !isPreview?.value,"Array.isArray(keyframes?.value): ",Array.isArray(keyframes?.value),"keyframes.value.length: ",keyframes?.value.length);
-    return !isPreview.value && Array.isArray(keyframes?.value) && keyframes.value.length === 3;
+    const isNotPreview = !isPreview?.value;
+    const hasKeyframes = Array.isArray(keyframes?.value);
+    const keyframeCount = keyframes?.value?.length || 0;
+    const hasThreeKeyframes = keyframeCount === 3;
+    const result = isNotPreview && hasKeyframes && hasThreeKeyframes;
+    
+    console.log("🔍 editingMode check:", {
+      isNotPreview,
+      hasKeyframes,
+      keyframeCount,
+      hasThreeKeyframes,
+      result,
+      keyframes: keyframes?.value
+    });
+    
+    return result;
   });
 
   const initialized = useRef(false);
@@ -78,30 +92,44 @@ const VideoPlaybackCanvas = ({
   const pan = Gesture.Pan()
     .onBegin(() => {
       'worklet';
+      console.log('🟢 Pan gesture began');
       panStartX.value = offsetX.value;
       panStartY.value = offsetY.value;
     })
     .onTouchesDown(() => {
       'worklet';
-      console.log('👆 Pan activated');
-      console.log('Pan Editing mode:', editingMode.value);
+      console.log('👆 Pan touches down - Editing mode:', editingMode.value);
     })
     .onUpdate((e) => {
       'worklet';
-      console.log('👆 Pan - Pan gesture update');
-      if (!editingMode.value) return;
+      console.log('👆 Pan gesture update - Editing mode:', editingMode.value, 'Translation:', e.translationX, e.translationY);
+      if (!editingMode.value) {
+        console.log('❌ Pan gesture blocked - not in editing mode');
+        return;
+      }
       offsetX.value = panStartX.value + e.translationX;
       offsetY.value = panStartY.value + e.translationY;
-      // console.log('🟠 Pan update tx:', offsetX.value, 'ty:', offsetY.value);
+      console.log('✅ Pan update applied - offsetX:', offsetX.value, 'offsetY:', offsetY.value);
     });
 
   const pinch = Gesture.Pinch()
+  .onBegin(() => {
+    'worklet';
+    console.log('🔍 Pinch gesture began');
+  })
   .onUpdate((e) => {
     'worklet';
-    console.log('👆 Pinch - Pan gesture update');
-    if (!editingMode.value || !Number.isFinite(e.scale)) return;
+    console.log('🔍 Pinch gesture update - Editing mode:', editingMode.value, 'Scale:', e.scale);
+    if (!editingMode.value) {
+      console.log('❌ Pinch gesture blocked - not in editing mode');
+      return;
+    }
+    if (!Number.isFinite(e.scale)) {
+      console.log('❌ Pinch gesture blocked - invalid scale:', e.scale);
+      return;
+    }
     scale.value *= e.scale;
-    // console.log('🔍 Zoom scale:', scale.value);
+    console.log('✅ Pinch update applied - new scale:', scale.value);
   });
 
   const markerDrag = Gesture.Pan()
@@ -151,6 +179,8 @@ const VideoPlaybackCanvas = ({
   const composedGesture = gestureMode === 'marker'
     ? markerDrag
     : Gesture.Simultaneous(pan, pinch);
+
+  console.log('🎭 Current gesture mode:', gestureMode, 'gestureModeShared:', gestureModeShared?.value);
 
   useAnimatedReaction(
     () => {

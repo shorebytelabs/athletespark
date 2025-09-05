@@ -26,6 +26,7 @@ const SmartTrackingEditor = ({
   // Shared values for interaction
   const currentTime = useSharedValue(trimStart);
   const currentKeyframeIndex = useSharedValue(0);
+  const currentZoomKeyframeIndex = useSharedValue(0); // Separate index for zoom keyframes
   const isPreview = useSharedValue(route.params?.startInEdit ? false : true);
   const paused = useSharedValue(true);
   const videoLayout = useSharedValue(null);
@@ -34,11 +35,23 @@ const SmartTrackingEditor = ({
   const videoNaturalHeightShared = useSharedValue(0);
   const OUTPUT_ASPECT_RATIO = aspectRatio?.ratio ?? 9 / 16;
   const freezeProgress = useSharedValue(0);
+
+  // Derived value to use the appropriate keyframe index based on gesture mode
+  const activeKeyframeIndex = useDerivedValue(() => {
+    return gestureModeShared.value === 'zoom' ? currentZoomKeyframeIndex.value : currentKeyframeIndex.value;
+  });
   
   /* ------------------------------------------------------------- */
   /* 1️⃣  Create overlays shared value *with* the incoming keyframes */
   /* ------------------------------------------------------------- */
   const isIntro = spotlightMode === SPOTLIGHT_MODES.INTRO;
+
+  // Set isPreview to false in intro mode to enable editing
+  useEffect(() => {
+    if (isIntro) {
+      isPreview.value = false;
+    }
+  }, [isIntro]);
 
   const overlays = useSharedValue(
     isIntro
@@ -94,11 +107,33 @@ const SmartTrackingEditor = ({
         ]
   );
 
+  // Debug: Log zoom keyframes
+  console.log('🎯 Zoom keyframes initialized:', zoomKeyframesShared.value);
+
   // Called when a marker is dragged/updated
   const handleOverlayChange = (updated, index) => {
     const keyframes = [...(overlays.value || [])];
     keyframes[index] = { ...keyframes[index], ...updated };
     overlays.value = keyframes;
+  };
+
+  // Unified handler for both marker and zoom changes
+  const handleChange = (transform, index) => {
+    console.log('🔄 handleChange called with:', transform, 'index:', index, 'gestureMode:', gestureModeShared.value);
+    // Check if this is a zoom transform (has scale property) or marker transform
+    if (transform.hasOwnProperty('scale')) {
+      // This is a zoom transform
+      console.log('🔍 Updating zoom keyframe:', index, transform);
+      const keyframes = [...(zoomKeyframesShared.value || [])];
+      keyframes[index] = { ...keyframes[index], ...transform };
+      zoomKeyframesShared.value = keyframes;
+    } else {
+      // This is a marker transform
+      console.log('📍 Updating marker keyframe:', index, transform);
+      const keyframes = [...(overlays.value || [])];
+      keyframes[index] = { ...keyframes[index], ...transform };
+      overlays.value = keyframes;
+    }
   };
 
   // Add a keyframe at currentTime
@@ -277,6 +312,9 @@ const SmartTrackingEditor = ({
         <VideoPlaybackCanvas
             clip={clip}
             keyframes={zoomKeyframesShared}
+            zoom={zoomKeyframesShared.value[currentZoomKeyframeIndex.value]?.scale ?? 1}
+            x={zoomKeyframesShared.value[currentZoomKeyframeIndex.value]?.x ?? 0}
+            y={zoomKeyframesShared.value[currentZoomKeyframeIndex.value]?.y ?? 0}
             currentTime={currentTime}
             videoRef={videoRef}
             paused={paused.value}
@@ -315,12 +353,12 @@ const SmartTrackingEditor = ({
             setPlaybackTime={(t) => {
             currentTime.value = t;
             }}
-            currentKeyframeIndex={currentKeyframeIndex}
+            currentKeyframeIndex={activeKeyframeIndex}
             videoLayout={videoLayout}
             resizeMode="cover"
             gestureModeShared={gestureModeShared}
             overlays={overlays}
-            onChange={handleOverlayChange}
+            onChange={handleChange}
             videoNaturalWidthShared={videoNaturalWidthShared}
             videoNaturalHeightShared={videoNaturalHeightShared}
         />
@@ -405,6 +443,12 @@ const SmartTrackingEditor = ({
         <TouchableOpacity
             onPress={() => {
             gestureModeShared.value = 'zoom';
+            // Set current time to the current zoom keyframe timestamp
+            const currentZoomKf = zoomKeyframesShared.value[currentZoomKeyframeIndex.value];
+            if (currentZoomKf && Number.isFinite(currentZoomKf.timestamp)) {
+                currentTime.value = currentZoomKf.timestamp;
+                videoRef.current?.seek?.(currentZoomKf.timestamp);
+            }
             console.log('🟢 Set gesture mode to ZOOM');
             }}
             style={{ padding: 10, backgroundColor: '#444', marginRight: 8, borderRadius: 6 }}
@@ -415,6 +459,12 @@ const SmartTrackingEditor = ({
         <TouchableOpacity
             onPress={() => {
             gestureModeShared.value = 'marker';
+            // Set current time to the current marker keyframe timestamp
+            const currentMarkerKf = overlays.value[currentKeyframeIndex.value];
+            if (currentMarkerKf && Number.isFinite(currentMarkerKf.timestamp)) {
+                currentTime.value = currentMarkerKf.timestamp;
+                videoRef.current?.seek?.(currentMarkerKf.timestamp);
+            }
             console.log('🟠 Set gesture mode to MARKER');
             }}
             style={{ padding: 10, backgroundColor: '#444', borderRadius: 6 }}
@@ -422,6 +472,49 @@ const SmartTrackingEditor = ({
             <Text style={{ color: '#fff' }}>Marker Mode</Text>
         </TouchableOpacity>
         </View>
+
+        {/* Zoom Keyframe Navigation (only show in zoom mode) */}
+        {gestureModeShared.value === 'zoom' && (
+            <View style={{ flexDirection: 'row', justifyContent: 'center', marginVertical: 8 }}>
+                <TouchableOpacity
+                    onPress={() => {
+                        if (currentZoomKeyframeIndex.value > 0) {
+                            currentZoomKeyframeIndex.value = currentZoomKeyframeIndex.value - 1;
+                            // Seek to the new zoom keyframe timestamp
+                            const newZoomKf = zoomKeyframesShared.value[currentZoomKeyframeIndex.value];
+                            if (newZoomKf && Number.isFinite(newZoomKf.timestamp)) {
+                                currentTime.value = newZoomKf.timestamp;
+                                videoRef.current?.seek?.(newZoomKf.timestamp);
+                            }
+                        }
+                    }}
+                    style={{ padding: 10, backgroundColor: '#333', marginRight: 8, borderRadius: 6 }}
+                >
+                    <Text style={{ color: '#fff' }}>◀ Prev Zoom</Text>
+                </TouchableOpacity>
+                
+                <Text style={{ color: '#fff', padding: 10 }}>
+                    Zoom Frame {currentZoomKeyframeIndex.value + 1} of {zoomKeyframesShared.value.length}
+                </Text>
+                
+                <TouchableOpacity
+                    onPress={() => {
+                        if (currentZoomKeyframeIndex.value < zoomKeyframesShared.value.length - 1) {
+                            currentZoomKeyframeIndex.value = currentZoomKeyframeIndex.value + 1;
+                            // Seek to the new zoom keyframe timestamp
+                            const newZoomKf = zoomKeyframesShared.value[currentZoomKeyframeIndex.value];
+                            if (newZoomKf && Number.isFinite(newZoomKf.timestamp)) {
+                                currentTime.value = newZoomKf.timestamp;
+                                videoRef.current?.seek?.(newZoomKf.timestamp);
+                            }
+                        }
+                    }}
+                    style={{ padding: 10, backgroundColor: '#333', marginLeft: 8, borderRadius: 6 }}
+                >
+                    <Text style={{ color: '#fff' }}>Next Zoom ▶</Text>
+                </TouchableOpacity>
+            </View>
+        )}
 
         {/* Marker Type Selector */}
         <View style={{ flexDirection: 'row', justifyContent: 'center', marginBottom: 8 }}>
