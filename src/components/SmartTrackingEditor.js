@@ -56,7 +56,7 @@ const SmartTrackingEditor = ({
   const overlays = useSharedValue(
     isIntro
         ? [{
-            timestamp: trimStart ?? 0,
+            timestamp: Math.min(trimStart + 1, trimEnd), // Default to 1 second from start, but not beyond trimEnd
             x: 0, y: 0,
             markerType: 'circle',
             freezeDuration: 1.0,   // default 1 s
@@ -71,11 +71,25 @@ const SmartTrackingEditor = ({
     useState(overlays.value[0]?.freezeDuration ?? 1);
   const freezeDurationShared = useSharedValue(freezeDurUI);
 
+  // Local state for frame timestamp slider
+  const [frameTimestampUI, setFrameTimestampUI] = useState(
+    isIntro ? Math.min(trimStart + 1, trimEnd) : (overlays.value[0]?.timestamp ?? trimStart)
+  );
+
   // ② Bridge SharedValue → React for live label updates
   useAnimatedReaction(
     () => freezeDurationShared.value,
     (val, prev) => {
         if (val !== prev) runOnJS(setFreezeDurUI)(val);
+    },
+    []
+ );
+
+  // Bridge overlay timestamp → React for frame slider
+  useAnimatedReaction(
+    () => overlays.value[0]?.timestamp,
+    (val, prev) => {
+        if (val !== prev && Number.isFinite(val)) runOnJS(setFrameTimestampUI)(val);
     },
     []
  );
@@ -420,8 +434,9 @@ const SmartTrackingEditor = ({
                         minimumValue={trimStart}
                         maximumValue={trimEnd}
                         step={0.01}
-                        value={overlays.value[0].timestamp}
+                        value={frameTimestampUI}
                         onValueChange={(val) => {
+                            setFrameTimestampUI(val);
                             overlays.value = [{ ...overlays.value[0], timestamp: val }];
                             currentTime.value = val;
                             videoRef.current?.seek?.(val);
@@ -432,7 +447,7 @@ const SmartTrackingEditor = ({
                         maximumTrackTintColor="#555"
                     />
                     <Text style={{ color: '#aaa', fontSize: 12 }}>
-                        Freeze frame at: {overlays.value[0].timestamp.toFixed(2)}s
+                        Freeze frame at: {frameTimestampUI.toFixed(2)}s
                     </Text>
                 </>
             )}
