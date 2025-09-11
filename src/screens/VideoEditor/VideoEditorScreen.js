@@ -715,6 +715,58 @@ const saveProject = async (patch) => {
 
     const initial = collectInitialMarkerKeyframes();   
 
+    /* -----------------------------------------------------------
+    * Set up the callback for Intro Spotlight mode
+    * -----------------------------------------------------------
+    */
+    trackingCallbackRef.current = async (data, spotlightMode) => {
+      console.log('🎯 Intro Spotlight callback called with:', JSON.stringify(data), 'mode:', spotlightMode);
+      
+      // Handle different data formats
+      let markerKeyframes;
+      if (data && data.markerKeyframes) {
+        // Intro mode: data is { markerKeyframes: [...], zoomKeyframes: [...] }
+        markerKeyframes = data.markerKeyframes;
+        console.log('🎯 Intro mode - using markerKeyframes:', JSON.stringify(markerKeyframes));
+      } else if (Array.isArray(data)) {
+        // Guided mode: data is just the array
+        markerKeyframes = data;
+        console.log('🎯 Guided mode - using data array:', JSON.stringify(markerKeyframes));
+      } else {
+        console.error('🎯 Unknown data format:', data);
+        return;
+      }
+
+      /* 2.1  Update React state */
+      const nextClips = [...clips];
+      nextClips[currentIndex] = {
+        ...nextClips[currentIndex],
+        markerKeyframes: markerKeyframes,
+        spotlightMode: spotlightMode,  
+      };
+      setClips(nextClips);
+      setSpotlightMode(spotlightMode);
+      saveProject({ ...project, clips: nextClips }).catch(console.warn);
+
+      /* 2.2  Update shared value -> canvas refresh happens instantly */
+      runOnUI(kfs => { overlaysShared.value = kfs; })
+        (markerKeyframes.map(k => ({ ...k })));
+
+      /* 2.3  Remember for the next session */
+      latestMarkerKeyframesRef.current = markerKeyframes.map(k => ({ ...k }));
+
+      /* 2.4  Persist */
+      try {
+        await saveProject({ ...project, clips: nextClips });
+        console.log('✅ persisted markerKeyframes');
+      } catch (err) {
+        console.warn('⚠️ failed to persist markerKeyframes', err);
+      }
+
+      /* 2.5  Tell the Video-editor there is now tracking data */
+      setHasTracking(markerKeyframes.length > 0);
+    };
+
     navigation.navigate('SmartTracking', {
       project,
       clip: currentClip,

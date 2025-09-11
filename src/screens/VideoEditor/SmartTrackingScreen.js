@@ -19,16 +19,17 @@ const SmartTrackingScreen = ({ route, navigation }) => {
     onTrackingComplete, // callback to receive final keyframes
   } = route.params || {};
 
-  const handleFinish = (finalKeyframes) => {
+  const handleFinish = (data) => {
+    console.log('📥 Received data in SmartTrackingScreen:', JSON.stringify(data));
+    console.log('📥 spotlightMode:', spotlightMode);
+    
     // Send the edits back to Video-Editor
     if (trackingCallbackRef.current) {
-        trackingCallbackRef.current(finalKeyframes, spotlightMode);
-        // trackingCallbackRef.current = null;
+        trackingCallbackRef.current(data, spotlightMode);
+        console.log('📤 trackingCallbackRef called successfully');
+    } else {
+        console.log('❌ trackingCallbackRef.current is null!');
     }
-    console.log(
-        '📥 Received keyframes in SmartTrackingScreen:',
-        JSON.stringify(finalKeyframes),
-    );
 
     // Return to the Video-Editor screen
     navigation.goBack();
