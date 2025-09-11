@@ -59,7 +59,9 @@ const SmartTrackingEditor = ({
             timestamp: Math.min(trimStart + 1, trimEnd), // Default to 1 second from start, but not beyond trimEnd
             x: 0, y: 0,
             markerType: 'circle',
-            freezeDuration: 1.0,   // default 1 s
+            freezeDuration: (Array.isArray(markerKeyframes) && markerKeyframes.length && markerKeyframes[0]?.freezeDuration) 
+                ? markerKeyframes[0].freezeDuration 
+                : 1.0,   // Use existing freezeDuration or default to 1 s
         }]
         : (Array.isArray(markerKeyframes) && markerKeyframes.length
             ? markerKeyframes.map(kf => ({ ...kf }))
@@ -70,6 +72,14 @@ const SmartTrackingEditor = ({
   const [freezeDurUI, setFreezeDurUI] =
     useState(overlays.value[0]?.freezeDuration ?? 1);
   const freezeDurationShared = useSharedValue(freezeDurUI);
+
+  // Update freezeDurUI when overlays changes (for editing existing markers)
+  useEffect(() => {
+    if (overlays.value[0]?.freezeDuration && overlays.value[0].freezeDuration !== freezeDurUI) {
+      setFreezeDurUI(overlays.value[0].freezeDuration);
+      freezeDurationShared.value = overlays.value[0].freezeDuration;
+    }
+  }, [overlays.value[0]?.freezeDuration]);
 
   // Local state for frame timestamp slider
   const [frameTimestampUI, setFrameTimestampUI] = useState(
@@ -443,7 +453,7 @@ const SmartTrackingEditor = ({
                             Freeze Duration
                         </Text>
                         <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
-                            {[0.5, 0.7, 1.0].map((duration) => (
+                            {[0.5, 0.7, 1.0, 1.5].map((duration) => (
                                 <TouchableOpacity
                                     key={duration}
                                     onPress={() => {
@@ -472,24 +482,6 @@ const SmartTrackingEditor = ({
                                     </Text>
                                 </TouchableOpacity>
                             ))}
-                            <TouchableOpacity
-                                onPress={() => {
-                                    // TODO: Implement custom duration modal
-                                    console.log('Custom duration requested');
-                                }}
-                                style={{
-                                    paddingHorizontal: 12,
-                                    paddingVertical: 6,
-                                    backgroundColor: '#444',
-                                    borderRadius: 16,
-                                    borderWidth: 1,
-                                    borderColor: '#666',
-                                }}
-                            >
-                                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '500' }}>
-                                    Custom
-                                </Text>
-                            </TouchableOpacity>
                         </View>
                     </View>
                 </>
