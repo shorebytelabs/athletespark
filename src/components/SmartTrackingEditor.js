@@ -79,6 +79,7 @@ const SmartTrackingEditor = ({
   const [frameSelectionExpanded, setFrameSelectionExpanded] = useState(false);
   const [freezeDurationExpanded, setFreezeDurationExpanded] = useState(false);
   const [markerExpanded, setMarkerExpanded] = useState(false);
+  const [currentMarkerType, setCurrentMarkerType] = useState(overlays.value[0]?.markerType || 'gif');
 
   // Function to handle tile selection - only one can be expanded at a time
   const handleTilePress = (tileType) => {
@@ -126,6 +127,13 @@ const SmartTrackingEditor = ({
       freezeDurationShared.value = overlays.value[0].freezeDuration;
     }
   }, [overlays.value[0]?.freezeDuration]);
+
+  // Update currentMarkerType when overlays changes (for editing existing markers)
+  useEffect(() => {
+    if (overlays.value[0]?.markerType && overlays.value[0].markerType !== currentMarkerType) {
+      setCurrentMarkerType(overlays.value[0].markerType);
+    }
+  }, [overlays.value[0]?.markerType]);
 
   // Local state for frame timestamp slider
   const [frameTimestampUI, setFrameTimestampUI] = useState(
@@ -291,6 +299,9 @@ const SmartTrackingEditor = ({
 
     overlays.value = [...next]; // ensure new reference triggers re-render
     currentKeyframeIndex.value = index;
+    
+    // Update the state to trigger re-render for highlighting
+    setCurrentMarkerType(type);
 
     setTimeout(() => {
         console.log("🔍 Post-assignment overlays.value:", JSON.stringify(overlays.value));
@@ -560,7 +571,7 @@ const SmartTrackingEditor = ({
                                 color: markerExpanded ? '#000' : '#aaa',
                                 fontSize: 8
                             }}>
-                                {overlays.value[0]?.markerType || 'gif'}
+                                {currentMarkerType}
                             </Text>
                         </TouchableOpacity>
                     </View>
@@ -779,14 +790,14 @@ const SmartTrackingEditor = ({
                                             style={{
                                                 paddingHorizontal: 12,
                                                 paddingVertical: 6,
-                                                backgroundColor: overlays.value[0]?.markerType === type ? colors.accent1 : '#333',
+                                                backgroundColor: currentMarkerType === type ? colors.accent1 : '#333',
                                                 borderRadius: 6,
                                                 borderWidth: 1,
-                                                borderColor: overlays.value[0]?.markerType === type ? colors.accent1 : '#555',
+                                                borderColor: currentMarkerType === type ? colors.accent1 : '#555',
                                             }}
                                         >
                                             <Text style={{ 
-                                                color: overlays.value[0]?.markerType === type ? '#000' : '#fff',
+                                                color: currentMarkerType === type ? '#000' : '#fff',
                                                 fontSize: 10,
                                                 fontWeight: '500'
                                             }}>
