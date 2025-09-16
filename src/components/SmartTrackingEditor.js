@@ -80,6 +80,7 @@ const SmartTrackingEditor = ({
   const [freezeDurationExpanded, setFreezeDurationExpanded] = useState(false);
   const [markerExpanded, setMarkerExpanded] = useState(false);
   const [currentMarkerType, setCurrentMarkerType] = useState(overlays.value[0]?.markerType || 'gif');
+  const [isZoomMode, setIsZoomMode] = useState(false);
 
   // Function to handle tile selection - only one can be expanded at a time
   const handleTilePress = (tileType) => {
@@ -118,6 +119,19 @@ const SmartTrackingEditor = ({
         }
         break;
     }
+  };
+
+  // Function to toggle zoom mode
+  const handleToggleZoomMode = () => {
+    // Toggle zoom mode without resetting zoom values
+    // Zoom values persist throughout the Player Spotlight session
+    setIsZoomMode(!isZoomMode);
+  };
+
+  // Function to reset zoom values when exiting Player Spotlight editor
+  const resetZoomValues = () => {
+    // This will be called when exiting the Player Spotlight editor
+    // The actual reset happens in VideoPlaybackCanvas
   };
 
   // Update freezeDurUI when overlays changes (for editing existing markers)
@@ -377,6 +391,101 @@ const SmartTrackingEditor = ({
 
   return (
     <View style={styles.container}>
+        {/* Zoom Mode Button - Only show in Intro mode */}
+        {isIntro && (
+            <View style={{
+                position: 'absolute',
+                top: 20,
+                right: 20,
+                zIndex: 200,
+                alignItems: 'flex-end',
+            }}>
+                <TouchableOpacity
+                    onPress={handleToggleZoomMode}
+                    style={{
+                        backgroundColor: isZoomMode ? colors.accent1 : 'rgba(0, 0, 0, 0.7)',
+                        paddingHorizontal: 12,
+                        paddingVertical: 8,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: isZoomMode ? colors.accent1 : '#555',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                    }}
+                >
+                    <Text style={{ 
+                        color: isZoomMode ? '#000' : '#fff',
+                        fontSize: 16,
+                        fontWeight: '600'
+                    }}>
+                        ⬟
+                    </Text>
+                    <Text style={{ 
+                        color: isZoomMode ? '#000' : '#fff',
+                        fontSize: 12,
+                        fontWeight: '500'
+                    }}>
+                        {isZoomMode ? 'Zoom On' : 'Zoom'}
+                    </Text>
+                </TouchableOpacity>
+                
+                {/* State indicator when zoom mode is active */}
+                {isZoomMode && (
+                    <View style={{
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                        paddingHorizontal: 8,
+                        paddingVertical: 4,
+                        borderRadius: 4,
+                        marginTop: 4,
+                        borderWidth: 1,
+                        borderColor: colors.accent1,
+                    }}>
+                        <Text style={{ 
+                            color: colors.accent1,
+                            fontSize: 10,
+                            fontWeight: '600'
+                        }}>
+                            Zoom Mode On
+                        </Text>
+                    </View>
+                )}
+            </View>
+        )}
+
+        {/* Zoom Mode Message - Positioned below video frame */}
+        {isIntro && isZoomMode && (
+            <View style={{
+                position: 'absolute',
+                bottom: 120, // Position below video frame, above controls
+                left: 20,
+                right: 20,
+                zIndex: 200,
+                backgroundColor: 'rgba(0, 0, 0, 0.9)',
+                paddingHorizontal: 16,
+                paddingVertical: 12,
+                borderRadius: 8,
+                borderLeftWidth: 4,
+                borderLeftColor: colors.accent1,
+                shadowColor: '#000',
+                shadowOffset: { width: 0, height: 2 },
+                shadowOpacity: 0.3,
+                shadowRadius: 4,
+                elevation: 5,
+            }}>
+                <Text style={{ 
+                    color: '#fff',
+                    fontSize: 12,
+                    textAlign: 'center',
+                    lineHeight: 16,
+                    fontWeight: '500'
+                }}>
+                    Zoom is for marker placement only and won't be saved in your final edit.{'\n'}
+                    While in Zoom Mode, marker movement is disabled.
+                </Text>
+            </View>
+        )}
+
         <View
         style={[
             styles.videoFrameWrapper,
@@ -442,6 +551,9 @@ const SmartTrackingEditor = ({
             onChange={handleChange}
             videoNaturalWidthShared={videoNaturalWidthShared}
             videoNaturalHeightShared={videoNaturalHeightShared}
+            // Zoom mode props
+            isZoomMode={isZoomMode}
+            onResetZoom={resetZoomValues}
         />
         </View>
 
@@ -579,6 +691,8 @@ const SmartTrackingEditor = ({
                     {/* Right side - Done button styled as tile */}
                     <TouchableOpacity
                         onPress={() => {
+                            // Reset zoom values when exiting Player Spotlight editor
+                            // This ensures zoom doesn't persist to main editor
                             if (typeof onFinish === 'function') {
                                 const result = {
                                     markerKeyframes: overlays.value,

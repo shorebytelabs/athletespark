@@ -37,10 +37,29 @@ const VideoPlaybackCanvas = ({
   videoNaturalHeightShared,
   overlays,
   gestureModeShared,
+  // Zoom mode props
+  isZoomMode = false,
+  onResetZoom = null,
 }) => {
   const offsetX = useSharedValue(x);
   const offsetY = useSharedValue(y);
   const scale = useSharedValue(zoom);
+  
+  // Temporary zoom mode shared values (session-only, not saved)
+  const tempZoomScale = useSharedValue(1);
+  const tempZoomOffsetX = useSharedValue(0);
+  const tempZoomOffsetY = useSharedValue(0);
+
+  // Reset zoom values when component unmounts (exiting Player Spotlight editor)
+  useEffect(() => {
+    return () => {
+      // Reset temporary zoom values when exiting Player Spotlight editor
+      tempZoomScale.value = 1;
+      tempZoomOffsetX.value = 0;
+      tempZoomOffsetY.value = 0;
+      console.log('🔄 Reset zoom values on exit');
+    };
+  }, []);
 
   const panStartX = useSharedValue(0);
   const panStartY = useSharedValue(0);
@@ -93,16 +112,30 @@ const VideoPlaybackCanvas = ({
     .onBegin(() => {
       'worklet';
       console.log('🟢 Pan gesture began');
-      panStartX.value = offsetX.value;
-      panStartY.value = offsetY.value;
+      if (isZoomMode) {
+        panStartX.value = tempZoomOffsetX.value;
+        panStartY.value = tempZoomOffsetY.value;
+      } else {
+        panStartX.value = offsetX.value;
+        panStartY.value = offsetY.value;
+      }
     })
     .onTouchesDown(() => {
       'worklet';
-      console.log('👆 Pan touches down - Editing mode:', editingMode.value);
+      console.log('👆 Pan touches down - Editing mode:', editingMode.value, 'Zoom mode:', isZoomMode);
     })
     .onUpdate((e) => {
       'worklet';
-      console.log('👆 Pan gesture update - Editing mode:', editingMode.value, 'Translation:', e.translationX, e.translationY);
+      console.log('👆 Pan gesture update - Editing mode:', editingMode.value, 'Zoom mode:', isZoomMode, 'Translation:', e.translationX, e.translationY);
+      
+      if (isZoomMode) {
+        // In zoom mode, update temporary zoom values
+        tempZoomOffsetX.value = panStartX.value + e.translationX;
+        tempZoomOffsetY.value = panStartY.value + e.translationY;
+        console.log('✅ Zoom mode pan update applied - tempOffsetX:', tempZoomOffsetX.value, 'tempOffsetY:', tempZoomOffsetY.value);
+        return;
+      }
+      
       if (!editingMode.value) {
         console.log('❌ Pan gesture blocked - not in editing mode');
         return;
@@ -119,7 +152,19 @@ const VideoPlaybackCanvas = ({
   })
   .onUpdate((e) => {
     'worklet';
-    console.log('🔍 Pinch gesture update - Editing mode:', editingMode.value, 'Scale:', e.scale);
+    console.log('🔍 Pinch gesture update - Editing mode:', editingMode.value, 'Zoom mode:', isZoomMode, 'Scale:', e.scale);
+    
+    if (isZoomMode) {
+      // In zoom mode, update temporary zoom scale
+      if (!Number.isFinite(e.scale)) {
+        console.log('❌ Pinch gesture blocked - invalid scale:', e.scale);
+        return;
+      }
+      tempZoomScale.value *= e.scale;
+      console.log('✅ Zoom mode pinch update applied - new tempScale:', tempZoomScale.value);
+      return;
+    }
+    
     if (!editingMode.value) {
       console.log('❌ Pinch gesture blocked - not in editing mode');
       return;
@@ -146,6 +191,11 @@ const VideoPlaybackCanvas = ({
   // 2) Convert drag delta & write back immutably
   .onUpdate((e) => {
     'worklet';
+    // Disable marker editing when in zoom mode
+    if (isZoomMode) {
+      console.log('❌ Marker drag blocked - zoom mode active');
+      return;
+    }
     if (gestureModeShared?.value !== 'marker') return;
 
     const layout = videoLayout.value;
@@ -176,8 +226,10 @@ const VideoPlaybackCanvas = ({
     );
   });
 
-  const composedGesture = gestureMode === 'marker'
+  const composedGesture = gestureMode === 'marker' && !isZoomMode
     ? markerDrag
+    : isZoomMode
+    ? Gesture.Simultaneous(pan, pinch) // Only allow zoom gestures in zoom mode, no marker editing
     : Gesture.Simultaneous(pan, pinch);
 
   console.log('🎭 Current gesture mode:', gestureMode, 'gestureModeShared:', gestureModeShared?.value);
@@ -300,6 +352,78 @@ const VideoPlaybackCanvas = ({
       sc = scRaw;
     }
 
+    // Apply temporary zoom mode adjustments if any zoom has been applied
+    // Check if any zoom has been applied (scale > 1 or offset != 0)
+    const hasZoomApplied = tempZoomScale.value !== 1 || tempZoomOffsetX.value !== 0 || tempZoomOffsetY.value !== 0;
+    
+    if (hasZoomApplied) {
+      // First apply the zoom scale
+      sc *= tempZoomScale.value;
+      
+      // Then apply the offset adjustments
+      tx += tempZoomOffsetX.value;
+      ty += tempZoomOffsetY.value;
+      
+      console.log('🔍 Applying zoom adjustments (persistent):', {
+        isZoomMode,
+        hasZoomApplied,
+        tempZoomScale: tempZoomScale.value,
+        tempZoomOffsetX: tempZoomOffsetX.value,
+        tempZoomOffsetY: tempZoomOffsetY.value,
+        finalScale: sc,
+        finalTx: tx,
+        finalTy: ty
+      });
+      
+      // Only ensure marker visibility when in zoom mode (for editing)
+      if (isZoomMode) {
+        // Ensure marker stays visible in zoomed view
+        const markerX = overlays.value[0]?.x || 0;
+        const markerY = overlays.value[0]?.y || 0;
+        
+        // Convert marker position to screen coordinates (accounting for current zoom)
+        const markerScreenX = markerX * fitScale * sc;
+        const markerScreenY = markerY * fitScale * sc;
+        
+        // Calculate viewport bounds
+        const viewportWidth = frameWidth;
+        const viewportHeight = frameHeight;
+        
+        // Calculate visible area bounds (where the video content is positioned)
+        const visibleLeft = -tx;
+        const visibleRight = visibleLeft + viewportWidth;
+        const visibleTop = -ty;
+        const visibleBottom = visibleTop + viewportHeight;
+        
+        // Check if marker is outside visible area and adjust zoom offset
+        const markerSize = 60; // Approximate marker size in screen pixels
+        let adjustedOffsetX = tempZoomOffsetX.value;
+        let adjustedOffsetY = tempZoomOffsetY.value;
+        
+        // Adjust horizontal position if marker is outside viewport
+        if (markerScreenX < visibleLeft + markerSize) {
+          adjustedOffsetX = -(markerX * fitScale * sc - markerSize);
+        } else if (markerScreenX > visibleRight - markerSize) {
+          adjustedOffsetX = -(markerX * fitScale * sc - viewportWidth + markerSize);
+        }
+        
+        // Adjust vertical position if marker is outside viewport
+        if (markerScreenY < visibleTop + markerSize) {
+          adjustedOffsetY = -(markerY * fitScale * sc - markerSize);
+        } else if (markerScreenY > visibleBottom - markerSize) {
+          adjustedOffsetY = -(markerY * fitScale * sc - viewportHeight + markerSize);
+        }
+        
+        // Apply the adjusted offsets
+        tx = txRaw * fitScale + adjustedOffsetX;
+        ty = tyRaw * fitScale + adjustedOffsetY;
+        
+        // Update the shared values for consistency
+        tempZoomOffsetX.value = adjustedOffsetX;
+        tempZoomOffsetY.value = adjustedOffsetY;
+      }
+    }
+
     console.log('🧪 Final transform:', {
       tx,
       ty,
@@ -309,6 +433,10 @@ const VideoPlaybackCanvas = ({
       frameWidth,
       frameHeight,
       mode: isPreviewing ? 'preview' : 'edit',
+      isZoomMode,
+      tempZoomScale: tempZoomScale.value,
+      tempZoomOffsetX: tempZoomOffsetX.value,
+      tempZoomOffsetY: tempZoomOffsetY.value,
     });
 
     return {
