@@ -429,27 +429,6 @@ const SmartTrackingEditor = ({
                         {isZoomMode ? 'Zoom On' : 'Zoom'}
                     </Text>
                 </TouchableOpacity>
-                
-                {/* State indicator when zoom mode is active */}
-                {isZoomMode && (
-                    <View style={{
-                        backgroundColor: 'rgba(0, 0, 0, 0.8)',
-                        paddingHorizontal: 8,
-                        paddingVertical: 4,
-                        borderRadius: 4,
-                        marginTop: 4,
-                        borderWidth: 1,
-                        borderColor: colors.accent1,
-                    }}>
-                        <Text style={{ 
-                            color: colors.accent1,
-                            fontSize: 10,
-                            fontWeight: '600'
-                        }}>
-                            Zoom Mode On
-                        </Text>
-                    </View>
-                )}
             </View>
         )}
 
