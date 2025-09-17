@@ -123,9 +123,22 @@ const SmartTrackingEditor = ({
 
   // Function to toggle zoom mode
   const handleToggleZoomMode = () => {
-    // Toggle zoom mode without resetting zoom values
-    // Zoom values persist throughout the Player Spotlight session
+    // Toggle zoom mode and set gesture mode like Marker tile Zoom option
     setIsZoomMode(!isZoomMode);
+    
+    if (!isZoomMode) {
+      // Entering zoom mode - set gesture mode to zoom like Marker tile
+      gestureModeShared.value = 'zoom';
+      currentTime.value = frameTimestampUI;
+      videoRef.current?.seek?.(frameTimestampUI);
+      console.log('🟢 Zoom mode ON - Set gesture mode to ZOOM (like Marker tile)');
+    } else {
+      // Exiting zoom mode - set gesture mode to marker
+      gestureModeShared.value = 'marker';
+      currentTime.value = frameTimestampUI;
+      videoRef.current?.seek?.(frameTimestampUI);
+      console.log('🟠 Zoom mode OFF - Set gesture mode to MARKER');
+    }
   };
 
   // Function to reset zoom values when exiting Player Spotlight editor
@@ -530,9 +543,6 @@ const SmartTrackingEditor = ({
             onChange={handleChange}
             videoNaturalWidthShared={videoNaturalWidthShared}
             videoNaturalHeightShared={videoNaturalHeightShared}
-            // Zoom mode props
-            isZoomMode={isZoomMode}
-            onResetZoom={resetZoomValues}
         />
         </View>
 
