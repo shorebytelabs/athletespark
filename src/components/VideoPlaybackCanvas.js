@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import Video from 'react-native-video';
 import Animated, {
@@ -10,6 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import { interpolateKeyframesSpline } from '../utils/interpolateKeyframesSpline';
+import { MarkerOverlay } from './MarkerOverlay'; 
 
 const VideoPlaybackCanvas = ({
   clip,
@@ -34,19 +35,53 @@ const VideoPlaybackCanvas = ({
   resizeMode,
   videoNaturalWidthShared,
   videoNaturalHeightShared,
+  overlays,
+  gestureModeShared,
 }) => {
   const offsetX = useSharedValue(x);
   const offsetY = useSharedValue(y);
   const scale = useSharedValue(zoom);
+  
+  // Note: Using existing zoom logic instead of temporary zoom values
+  // The zoom mode now works exactly like Marker tile Zoom option
 
   const panStartX = useSharedValue(0);
   const panStartY = useSharedValue(0);
 
+  const markerPanStartX = useSharedValue(0);
+  const markerPanStartY = useSharedValue(0);
+
   const editingMode = useDerivedValue(() => {
-    return !isPreview.value && Array.isArray(keyframes?.value) && keyframes.value.length === 3;
+    const isNotPreview = !isPreview?.value;
+    const hasKeyframes = Array.isArray(keyframes?.value);
+    const keyframeCount = keyframes?.value?.length || 0;
+    const hasThreeKeyframes = keyframeCount === 3;
+    const result = isNotPreview && hasKeyframes && hasThreeKeyframes;
+    
+    console.log("🔍 editingMode check:", {
+      isNotPreview,
+      hasKeyframes,
+      keyframeCount,
+      hasThreeKeyframes,
+      result,
+      keyframes: keyframes?.value
+    });
+    
+    return result;
   });
 
   const initialized = useRef(false);
+  const [gestureMode, setGestureMode] = useState('zoom');
+
+  useAnimatedReaction(
+    () => gestureModeShared?.value,
+    (val) => {
+      if (val && typeof val === 'string') {
+        runOnJS(setGestureMode)(val);
+      }
+    },
+    [gestureModeShared]
+  );
 
   useEffect(() => {
     if (!isPreview && Array.isArray(keyframes?.value) && keyframes.value.length === 3) {
@@ -55,40 +90,111 @@ const VideoPlaybackCanvas = ({
       scale.value = zoom;
       console.log('🟢 Updated values for clip:', { x, y, zoom });
     }
-  }, [x, y, zoom, isPreview, keyframes.value]);
+  }, [x, y, zoom, isPreview, keyframes?.value]);
 
   const pan = Gesture.Pan()
     .onBegin(() => {
       'worklet';
+      console.log('🟢 Pan gesture began');
       panStartX.value = offsetX.value;
       panStartY.value = offsetY.value;
     })
     .onTouchesDown(() => {
       'worklet';
-      console.log('👆 Pan activated');
-      console.log('Pan Editing mode:', editingMode.value);
+      console.log('👆 Pan touches down - Editing mode:', editingMode.value);
     })
     .onUpdate((e) => {
       'worklet';
-      if (!editingMode.value) return;
+      console.log('👆 Pan gesture update - Editing mode:', editingMode.value, 'Translation:', e.translationX, e.translationY);
+      
+      if (!editingMode.value) {
+        console.log('❌ Pan gesture blocked - not in editing mode');
+        return;
+      }
       offsetX.value = panStartX.value + e.translationX;
       offsetY.value = panStartY.value + e.translationY;
-      // console.log('🟠 Pan update tx:', offsetX.value, 'ty:', offsetY.value);
+      console.log('✅ Pan update applied - offsetX:', offsetX.value, 'offsetY:', offsetY.value);
     });
 
-  const pinch = Gesture.Pinch().onUpdate((e) => {
+  const pinch = Gesture.Pinch()
+  .onBegin(() => {
     'worklet';
-    if (!editingMode.value || !Number.isFinite(e.scale)) return;
+    console.log('🔍 Pinch gesture began');
+  })
+  .onUpdate((e) => {
+    'worklet';
+    console.log('🔍 Pinch gesture update - Editing mode:', editingMode.value, 'Scale:', e.scale);
+    
+    if (!editingMode.value) {
+      console.log('❌ Pinch gesture blocked - not in editing mode');
+      return;
+    }
+    if (!Number.isFinite(e.scale)) {
+      console.log('❌ Pinch gesture blocked - invalid scale:', e.scale);
+      return;
+    }
     scale.value *= e.scale;
-    // console.log('🔍 Zoom scale:', scale.value);
+    console.log('✅ Pinch update applied - new scale:', scale.value);
   });
 
-  const composedGesture = Gesture.Simultaneous(pan, pinch);
+  const markerDrag = Gesture.Pan()
+  // 1) Remember the marker’s start position (natural-video space)
+  .onBegin(() => {
+    'worklet';
+    const i = currentKeyframeIndex.value;
+    const cur = overlays.value[i];
+
+    markerPanStartX.value = Number.isFinite(cur?.x) ? cur.x : 100;
+    markerPanStartY.value = Number.isFinite(cur?.y) ? cur.y : 300;
+  })
+
+  // 2) Convert drag delta & write back immutably
+  .onUpdate((e) => {
+    'worklet';
+    if (gestureModeShared?.value !== 'marker') return;
+
+    const layout = videoLayout.value;
+    const w = videoNaturalWidthShared.value;
+    const h = videoNaturalHeightShared.value;
+    if (!layout || w === 0 || h === 0) return;
+
+    // Same scale used in MarkerOverlay.js
+    const fitScale = Math.max(
+      layout.frameWidth  / w,
+      layout.frameHeight / h
+    );
+
+    // ΔX / ΔY back to natural-video pixels
+    const dxNat = e.translationX / fitScale;
+    const dyNat = e.translationY / fitScale;
+
+    const i = currentKeyframeIndex.value;
+    const updated = {
+      ...overlays.value[i],
+      x: markerPanStartX.value + dxNat,
+      y: markerPanStartY.value + dyNat,
+    };
+
+    // 🔄 Replace the whole array so Reanimated picks it up
+    overlays.value = overlays.value.map((o, idx) =>
+      idx === i ? updated : o
+    );
+  });
+
+  const composedGesture = gestureMode === 'marker'
+    ? markerDrag
+    : Gesture.Simultaneous(pan, pinch);
+
+  console.log('🎭 Current gesture mode:', gestureMode, 'gestureModeShared:', gestureModeShared?.value);
 
   useAnimatedReaction(
     () => {
+      const isZoomMode =
+        !gestureModeShared /* Smart Zoom */ ||
+        gestureModeShared.value === 'zoom';
       if (
         !editingMode.value ||
+        !isZoomMode ||
         !currentKeyframeIndex ||
         !('value' in currentKeyframeIndex)
       ) {
@@ -103,7 +209,10 @@ const VideoPlaybackCanvas = ({
       };
     },
     (val) => {
+      const isZoomMode =
+        !gestureModeShared || gestureModeShared.value === 'zoom';
       if (
+        isZoomMode &&
         val &&
         onChange &&
         Number.isFinite(val.scale) &&
@@ -117,7 +226,7 @@ const VideoPlaybackCanvas = ({
         );
       }
     },
-    [editingMode]
+    [editingMode, gestureModeShared]
   );
 
   useAnimatedReaction(
@@ -149,6 +258,7 @@ const VideoPlaybackCanvas = ({
     const naturalH = videoNaturalHeightShared?.value;
 
     if (!layout || !naturalW || !naturalH || naturalW <= 0 || naturalH <= 0) {
+      console.log("layout: ", layout, "naturalW: ", naturalW, "naturalH: ", naturalH);
       return {};
     }
 
@@ -162,6 +272,8 @@ const VideoPlaybackCanvas = ({
 
     // 🛑 Fallback for non-smart-zoom clips (or bad data)
     if (isPreviewing && !hasValidKeyframes) {
+      console.log("Fallback for non-smart-zoom clips - isPreviewing: ", isPreviewing, "hasValidKeyframes: ", hasValidKeyframes);
+
       return {
         transform: [
           { translateX: 0 },
@@ -173,30 +285,39 @@ const VideoPlaybackCanvas = ({
       };
     }
 
-    if (isPreviewing && hasValidKeyframes) {
-      const t = currentTime.value;
-      const interpolated = interpolateKeyframesSpline(keyframes.value, t);
+    const t = currentTime.value;
+    const interpolated = isPreviewing && hasValidKeyframes
+      ? interpolateKeyframesSpline(keyframes.value, t)
+      : null;
 
-      //console.log('🎯 Smart Zoom Preview @', t, interpolated);
+    // Track these always to ensure transform reactivity
+    const txRaw = offsetX.value;
+    const tyRaw = offsetY.value;
+    const scRaw = scale.value;
 
-      if (interpolated) {
-        tx = interpolated.x * fitScale;
-        ty = interpolated.y * fitScale;
-        sc = interpolated.scale;
-      }
+    if (interpolated) {
+      tx = interpolated.x * fitScale;
+      ty = interpolated.y * fitScale;
+      sc = interpolated.scale;
     } else {
-      // gesture editing mode
-      tx = offsetX.value * fitScale;
-      ty = offsetY.value * fitScale;
-      sc = scale.value;
+      tx = txRaw * fitScale;
+      ty = tyRaw * fitScale;
+      sc = scRaw;
     }
 
-    // console.log('🧪 transformStyle ctx:', {
-    //   isPreviewing,
-    //   hasValidKeyframes,
-    //   currentTime: currentTime.value,
-    //   keyframes: keyframes?.value,
-    // });
+    // Note: Using existing zoom logic - no custom zoom mode adjustments needed
+    // The zoom mode now works exactly like Marker tile Zoom option
+
+    console.log('🧪 Final transform:', {
+      tx,
+      ty,
+      sc,
+      naturalW,
+      naturalH,
+      frameWidth,
+      frameHeight,
+      mode: isPreviewing ? 'preview' : 'edit',
+    });
 
     return {
       transform: [
@@ -209,20 +330,53 @@ const VideoPlaybackCanvas = ({
     };
   });
 
+  const [canRenderOverlay, setCanRenderOverlay] = useState(false);
+
+  const layoutReady = useDerivedValue(() => {
+    const layout = videoLayout?.value;
+    const w = videoNaturalWidthShared?.value;
+    const h = videoNaturalHeightShared?.value;
+
+    return (
+      layout &&
+      Number.isFinite(layout.frameWidth) &&
+      Number.isFinite(layout.frameHeight) &&
+      w > 0 &&
+      h > 0
+    );
+  });
+
+  useAnimatedReaction(
+    () => layoutReady.value,
+    (ready, prev) => {
+      if (ready && !prev) {
+        runOnJS(setCanRenderOverlay)(true); // ✅ safe
+      }
+    },
+    []
+  );
+
+
   return (
     <GestureDetector gesture={composedGesture}>
-      <Animated.View
-        style={[
-          StyleSheet.absoluteFill,
-          transformStyle,
-        ]}
-      >
+      <Animated.View style={[StyleSheet.absoluteFill, transformStyle]}>
         <Video
-          key={`canvas-${previewSessionId}`} 
+          key={`canvas-${previewSessionId}`}
           ref={videoRef}
           source={{ uri: clip.uri }}
           paused={paused}
-          onLoad={onLoad}
+          onLoad={(meta) => {
+            'worklet';
+            const w = meta?.naturalSize?.width  ?? 1;
+            const h = meta?.naturalSize?.height ?? 1;
+
+            videoNaturalWidthShared.value  = w;
+            videoNaturalHeightShared.value = h;
+
+            runOnJS(console.log)('🎞️ Video loaded (natural):', { w, h });
+
+            if (onLoad) runOnJS(onLoad)(meta);
+          }}
           onEnd={onEnd}
           resizeMode={resizeMode}
           style={{ width: '100%', height: '100%' }}
@@ -238,7 +392,45 @@ const VideoPlaybackCanvas = ({
               setPlaybackTime(time);
             }
           }}
+          onLayout={(e) => {
+            const { width, height } = e.nativeEvent.layout;
+            if (videoLayout && 'value' in videoLayout) {
+              videoLayout.value = { frameWidth: width, frameHeight: height };
+              console.log('📐 Measured layout:', width, height);
+            }
+          }}
         />
+
+        {/* 🟢 Object-tracking marker overlays */}
+        {Array.isArray(overlays?.value) && overlays.value.length > 0 && (
+          isPreview?.value ? (
+            /* ----- Preview: every keyframe, each does its own interpolation ----- */
+            overlays.value.map((_, i) => (
+              <MarkerOverlay
+                key={`marker-preview-${i}`}
+                currentKeyframeIndex={{ value: i }}      // constant-like object
+                overlays={overlays}
+                interpolate={true}
+                currentTime={currentTime}
+                videoLayout={videoLayout}
+                videoNaturalWidthShared={videoNaturalWidthShared}
+                videoNaturalHeightShared={videoNaturalHeightShared}
+              />
+            ))
+          ) : (
+            /* ----- Edit: only the active keyframe ----- */
+            <MarkerOverlay
+              key="marker-edit"
+              currentKeyframeIndex={currentKeyframeIndex}  // ← shared value (reactive)
+              overlays={overlays}
+              interpolate={false}
+              currentTime={currentTime}
+              videoLayout={videoLayout}
+              videoNaturalWidthShared={videoNaturalWidthShared}
+              videoNaturalHeightShared={videoNaturalHeightShared}
+            />
+          )
+        )}
       </Animated.View>
     </GestureDetector>
   );

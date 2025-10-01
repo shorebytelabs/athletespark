@@ -23,8 +23,10 @@ import { colors } from '../../theme/theme';
 import ClipNavigation from '../../navigation/ClipNavigation';
 import RNFS from 'react-native-fs';
 import VideoEditorNativeModule from '../../nativemodules/VideoEditorNativeModule';
-import Animated, { useSharedValue } from 'react-native-reanimated';
+import Animated, { useSharedValue, runOnUI } from 'react-native-reanimated';
 import VideoPlaybackCanvas from '../../components/VideoPlaybackCanvas';
+import { trackingCallbackRef } from '../../utils/trackingCallbackRegistry';
+import { SPOTLIGHT_MODES } from '../../constants/playerSpotlight'; 
 
 const defaultCategories = [
   'Goal',
@@ -52,15 +54,28 @@ const ASPECT_RATIOS = {
 };
 
 export default function VideoEditorScreen({ route, navigation }) {
-  const { project, onClipUpdate, currentClip: routeCurrentClip} = route.params ?? {};
-  
+  const {
+  project: initialProject,
+  onClipUpdate,
+  currentClip: routeCurrentClip,
+} = route.params ?? {};
+
+// keep a fresh copy in RAM so we can mutate it and stay in sync
+const [project, setProject] = useState(initialProject);
+
+// writes to storage **and** refreshes the in-memory copy
+const saveProject = async (patch) => {
+  const next = { ...project, ...patch };
+    await updateProject(next);   // 💾 persists to AsyncStorage / DB
+    setProject(next);            // 🧠 refreshes local state so future edits use it
+};
+
   const [keyframes, setKeyframes] = useState([]);
   const videoRef = useRef(null);
   const [markerPos, setMarkerPos] = useState({ x: 0.5, y: 0.5 });
 
   const [clips, setClips] = useState(project?.clips ?? []);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [trackingEnabled, setTrackingEnabled] = useState(false);
 
   const [customCategories, setCustomCategories] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
@@ -79,7 +94,7 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const projectId = project?.id;
   const clipId = currentClip?.id || currentClip?.uri;
-  const hasSmartZoom = !!currentClip.smartZoomKeyframes?.length;//= clips[currentIndex]?.smartZoomKeyframes != null;
+  const hasSmartZoom = !!currentClip.smartZoomKeyframes?.length;
   const [safeUri, setSafeUri] = useState(null);
   const [aspectRatio, setAspectRatio] = useState(project?.aspectRatio ?? ASPECT_RATIOS.PORTRAIT);
   const screenWidth = Dimensions.get('window').width;
@@ -89,6 +104,13 @@ export default function VideoEditorScreen({ route, navigation }) {
   const videoNaturalWidthShared = useSharedValue(null);
   const videoNaturalHeightShared = useSharedValue(null);
   const isPreview = useSharedValue(true);
+  const [hasTracking, setHasTracking] = React.useState(false);
+  const [trackingEnabled, setTrackingEnabled] = useState(false);
+  const [spotlightModalOpen, setSpotlightModalOpen] = useState(false);   
+
+  const [spotlightMode, setSpotlightMode] = useState(
+    currentClip?.spotlightMode ?? null
+  );
 
   let containerWidth, containerHeight;
 
@@ -205,7 +227,7 @@ export default function VideoEditorScreen({ route, navigation }) {
         setClips(updatedClips);
 
         const updatedProject = { ...project, clips: updatedClips };
-        await updateProject(updatedProject);
+        await saveProject(updatedProject);
 
         console.log("persistSmartZoom - keyframes",keyframes)
 
@@ -237,6 +259,19 @@ export default function VideoEditorScreen({ route, navigation }) {
     };
   }, [currentClip?.uri]);
 
+  // Collect initial marker keyframes for SmartTracking
+  const collectInitialMarkerKeyframes = () => {
+    if (latestMarkerKeyframesRef.current?.length) {
+      return latestMarkerKeyframesRef.current.map(k => ({ ...k }));
+    } else if (Array.isArray(overlaysShared.value) && overlaysShared.value.length) {
+      return overlaysShared.value.map(k => ({ ...k }));
+    } else if (Array.isArray(currentClip?.markerKeyframes) && currentClip.markerKeyframes.length) {
+      return currentClip.markerKeyframes.map(k => ({ ...k }));
+    } else {
+      return [];
+    }
+  };
+
   // Save trim info whenever trim changes
   const handleTrimChange = async (start, end) => {
     setTrimStart(start);
@@ -266,7 +301,7 @@ export default function VideoEditorScreen({ route, navigation }) {
 
   const saveEditedClipsToProject = async () => {
     const updatedProject = { ...project, clips: clips, aspectRatio};
-    await updateProject(updatedProject);
+    await saveProject(updatedProject);
   };
 
   const loadCustomCategories = async () => {
@@ -295,20 +330,28 @@ export default function VideoEditorScreen({ route, navigation }) {
     'Other / Create New',
   ];
 
-  const assignCategory = (category) => {
+  const assignCategory = async (category) => {
     if (category === 'Other / Create New') {
-        setNewCategoryName('');
-        setModalVisible(true);
-        return;
+      setNewCategoryName('');
+      setModalVisible(true);
+      return;
     }
+
+    /* 1. update React state */
     const updatedClips = [...clips];
-    // Deselect if user taps the already selected category
-    if (updatedClips[currentIndex].category === category) {
-        updatedClips[currentIndex].category = null;
-    } else {
-        updatedClips[currentIndex].category = category;
-    }
+    updatedClips[currentIndex] = {
+      ...updatedClips[currentIndex],
+      // deselect if tapped twice
+      category: updatedClips[currentIndex].category === category ? null : category,
+    };
     setClips(updatedClips);
+
+    /* 2. persist to storage */
+    try {
+      await saveProject({ ...project, clips: updatedClips });
+    } catch (err) {
+      console.warn('⚠️  failed to persist category', err);
+    }
   };
 
   const addCustomCategory = () => {
@@ -385,12 +428,57 @@ export default function VideoEditorScreen({ route, navigation }) {
   };
 
   const keyframesShared = useRef(useSharedValue([])).current;
+  const overlaysShared = useRef(useSharedValue(currentClip?.markerKeyframes ?? [])).current;
+  const gestureModeShared = useRef(useSharedValue('zoom')).current;
 
   useEffect(() => {
     if (Array.isArray(currentClip?.smartZoomKeyframes)) {
       keyframesShared.value = currentClip.smartZoomKeyframes;
     }
   }, [currentClip?.smartZoomKeyframes]);
+
+  // Keep overlaysShared in-sync with the clip we’re viewing
+  useEffect(() => {
+    if (Array.isArray(currentClip?.markerKeyframes)) {
+      overlaysShared.value = currentClip.markerKeyframes;
+    } else {
+      overlaysShared.value = [];
+    }
+  }, [currentClip?.markerKeyframes]);
+
+  /* 🔄 keep Player-Spotlight state in sync with the current clip */
+  useEffect(() => {
+    const has = Array.isArray(currentClip?.markerKeyframes) &&
+                currentClip.markerKeyframes.length > 0;
+
+    setHasTracking(has);
+    setSpotlightMode(currentClip?.spotlightMode ?? null);
+  }, [
+    currentClip?.id,
+    currentClip?.markerKeyframes,
+    currentClip?.spotlightMode,
+  ]);
+
+  useEffect(() => {
+    if (!currentClip) return;
+
+    const kf = Array.isArray(currentClip.markerKeyframes)
+      ? currentClip.markerKeyframes
+      : [];
+
+    runOnUI((_copy) => {
+      // always hand Reanimated a brand-new reference
+      overlaysShared.value = _copy;
+    })(kf.map(o => ({ ...o })));   // <- plain JS clone
+
+    setHasTracking(kf.length > 0);
+  }, [currentClip?.markerKeyframes, currentClip?.id]);
+
+  useEffect(() => {
+    if (Array.isArray(currentClip?.markerKeyframes)) {
+      latestMarkerKeyframesRef.current = currentClip.markerKeyframes.map(k => ({ ...k }));
+    }
+  }, [currentClip?.markerKeyframes, currentClip?.id]);
 
   const onLoad = (data) => {
     console.log('🎞 onLoad triggered with data:', data);
@@ -535,10 +623,160 @@ export default function VideoEditorScreen({ route, navigation }) {
     handleSmartZoom();
   };
 
-  const handleSmartZoomReset = () => {
+  const handleSmartZoomReset = async () => {
+
     const updated = [...clips];
     updated[currentIndex].smartZoomKeyframes = null;
     setClips(updated);
+
+  try {
+      await saveProject({ ...project, clips: updated });
+    } catch (err) {
+      console.warn('⚠️  failed to persist smartZoom reset', err);
+    }
+  };
+
+  const latestMarkerKeyframesRef = useRef([]);
+
+  const handleSmartTracking = () => {
+    /* -----------------------------------------------------------
+    * 1️⃣  Figure out which key-frames to send to the editor
+    * -----------------------------------------------------------
+    * ‣ latestMarkerKeyframesRef.current → always the freshest
+    * ‣ overlaysShared.value             → fresh unless editing
+    * ‣ currentClip.markerKeyframes      → last on-disk copy
+    */
+
+    const initial = collectInitialMarkerKeyframes();
+
+    console.log('🔗 Pushing to SmartTracking with', JSON.stringify(initial));
+
+    /* -----------------------------------------------------------
+    * 2️⃣  Callback the editor will invoke when the user taps “Save”
+    * -----------------------------------------------------------
+    */
+    trackingCallbackRef.current = async (updated, mode) => {
+      /* 2.1  Update React state */
+      const nextClips              = [...clips];
+      nextClips[currentIndex]      = {
+        ...nextClips[currentIndex],
+        markerKeyframes: updated,
+        spotlightMode: mode,  
+      };
+      setClips(nextClips);
+      setSpotlightMode(mode);
+      saveProject({ ...project, clips: nextClips }).catch(console.warn);
+
+      /* 2.2  Update shared value -> canvas refresh happens instantly */
+      runOnUI(kfs => { overlaysShared.value = kfs; })
+        (updated.map(k => ({ ...k })));
+
+      /* 2.3  Remember for the next session */
+      latestMarkerKeyframesRef.current = updated.map(k => ({ ...k }));
+
+      /* 2.4  Persist */
+      try {
+        await saveProject({ ...project, clips: nextClips });
+        console.log('✅  persisted markerKeyframes');
+      } catch (err) {
+        console.warn('⚠️  failed to persist markerKeyframes', err);
+      }
+
+      /* 2.5  Tell the Video-editor there is now tracking data */
+      setHasTracking(updated.length > 0);
+    };
+
+    /* -----------------------------------------------------------
+    * 3️⃣  Finally navigate
+    * -----------------------------------------------------------
+    */
+    navigation.navigate('SmartTracking', {
+      project,
+      clip:        currentClip,
+      videoUri:    currentClip?.uri,
+      trimStart,
+      trimEnd,
+      duration,
+      aspectRatio,
+      markerKeyframes: initial,   
+      startInEdit: true,
+      spotlightMode: SPOTLIGHT_MODES.GUIDED,   
+    });
+  };
+
+  const handlePlayerSpotlight = (mode) => {
+    /* If the user picked Guided Follow, just reuse the rock-solid
+     handleSmartTracking() flow – it already wires up the callback
+     and persistence logic. */
+    if (mode === SPOTLIGHT_MODES.GUIDED) {
+      handleSmartTracking();
+      return;         
+    }
+
+    const initial = collectInitialMarkerKeyframes();   
+
+    /* -----------------------------------------------------------
+    * Set up the callback for Intro Spotlight mode
+    * -----------------------------------------------------------
+    */
+    trackingCallbackRef.current = async (data, spotlightMode) => {
+      console.log('🎯 Intro Spotlight callback called with:', JSON.stringify(data), 'mode:', spotlightMode);
+      
+      // Handle different data formats
+      let markerKeyframes;
+      if (data && data.markerKeyframes) {
+        // Intro mode: data is { markerKeyframes: [...], zoomKeyframes: [...] }
+        markerKeyframes = data.markerKeyframes;
+        console.log('🎯 Intro mode - using markerKeyframes:', JSON.stringify(markerKeyframes));
+      } else if (Array.isArray(data)) {
+        // Guided mode: data is just the array
+        markerKeyframes = data;
+        console.log('🎯 Guided mode - using data array:', JSON.stringify(markerKeyframes));
+      } else {
+        console.error('🎯 Unknown data format:', data);
+        return;
+      }
+
+      /* 2.1  Update React state */
+      const nextClips = [...clips];
+      nextClips[currentIndex] = {
+        ...nextClips[currentIndex],
+        markerKeyframes: markerKeyframes,
+        spotlightMode: spotlightMode,  
+      };
+      setClips(nextClips);
+      setSpotlightMode(spotlightMode);
+      saveProject({ ...project, clips: nextClips }).catch(console.warn);
+
+      /* 2.2  Update shared value -> canvas refresh happens instantly */
+      runOnUI(kfs => { overlaysShared.value = kfs; })
+        (markerKeyframes.map(k => ({ ...k })));
+
+      /* 2.3  Remember for the next session */
+      latestMarkerKeyframesRef.current = markerKeyframes.map(k => ({ ...k }));
+
+      /* 2.4  Persist */
+      try {
+        await saveProject({ ...project, clips: nextClips });
+        console.log('✅ persisted markerKeyframes');
+      } catch (err) {
+        console.warn('⚠️ failed to persist markerKeyframes', err);
+      }
+
+      /* 2.5  Tell the Video-editor there is now tracking data */
+      setHasTracking(markerKeyframes.length > 0);
+    };
+
+    navigation.navigate('SmartTracking', {
+      project,
+      clip: currentClip,
+      trimStart,
+      trimEnd,
+      aspectRatio,
+      markerKeyframes: initial,
+      spotlightMode: mode,         
+      startInEdit: false
+    });
   };
 
   const logVideoFileDetails = async (uri) => {
@@ -546,13 +784,9 @@ export default function VideoEditorScreen({ route, navigation }) {
 
     try {
       const exists = await RNFS.exists(uri);
-      // console.log(`[SmartZoom] File exists: ${exists}`);
 
       if (exists) {
         const stat = await RNFS.stat(uri);
-        // console.log(`[SmartZoom] File size: ${stat.size}`);
-        // console.log(`[SmartZoom] File modified: ${stat.mtime}`);
-        // console.log(`[SmartZoom] File path: ${stat.path}`);
       } else {
         console.warn('[SmartZoom] File does not exist at path:', uri);
       }
@@ -607,6 +841,8 @@ return (
                 y={0}
                 isPreview={isPreview}
                 keyframes={keyframesShared}
+                overlays={overlaysShared}
+                gestureModeShared={gestureModeShared}
                 currentTime={currentTimeShared}
                 trimStart={trimStart}
                 trimEnd={trimEnd}
@@ -684,10 +920,15 @@ return (
                 styles.aspectRatioButton,
                 aspectRatio.label === option.label && styles.aspectRatioButtonSelected,
               ]}
-              onPress={() => {
+              onPress={async () => {
                 setAspectRatio(option);
+                try {
+                  await saveProject({ aspectRatio: option });
+                } catch (err) {
+                  console.warn('⚠️  failed to persist aspectRatio', err);
+                }
               }}
-            >
+              >
               <Text
                 style={[
                   styles.aspectRatioButtonText,
@@ -768,21 +1009,114 @@ return (
           )}
         </View>
 
-        {/* Athlete Tracking Control */}
+        {/* Player Spotlight Control */}
         <View style={styles.toggleRow}>
-          <Text style={styles.subtitle}>Athlete Tracking:</Text>
-          <TouchableOpacity
-            onPress={() => setTrackingEnabled(!trackingEnabled)}
-            style={[
-              styles.toggleButton,
-              { backgroundColor: trackingEnabled ? colors.danger : colors.accent1 },
-            ]}
-          >
-            <Text style={styles.buttonText}>
-              {trackingEnabled ? 'Disable' : 'Enable'}
+        {/* Left side: label + status stacked vertically */}
+        <View style={{ flexDirection: 'column' }}>
+          <Text style={styles.subtitle}>Player Spotlight:</Text>
+
+          {(spotlightMode === SPOTLIGHT_MODES.GUIDED ||
+            spotlightMode === SPOTLIGHT_MODES.INTRO) && (
+            <Text style={{ color: '#aaa', fontSize: 12, marginTop: 2 }}>
+              {spotlightMode === SPOTLIGHT_MODES.GUIDED
+                ? 'Guided Follow'
+                : 'Intro Spotlight'}{' '}
+              configured
             </Text>
-          </TouchableOpacity>
+          )}
         </View>
+
+        {/* Right side: buttons or setup */}
+        {spotlightMode === SPOTLIGHT_MODES.GUIDED ||
+        spotlightMode === SPOTLIGHT_MODES.INTRO ? (
+          /* ---- Already configured ---- */
+          <View style={styles.actionGroup}>
+            {/* Edit */}
+            <TouchableOpacity
+              onPress={() =>
+                spotlightMode === SPOTLIGHT_MODES.GUIDED
+                  ? handleSmartTracking([...overlaysShared.value])
+                  : handlePlayerSpotlight(SPOTLIGHT_MODES.INTRO) // intro re-edit
+              }
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.buttonText}>Edit</Text>
+            </TouchableOpacity>
+
+            {/* Reset */}
+            <TouchableOpacity
+              onPress={async () => {
+                const updated = [...clips];
+                updated[currentIndex] = {
+                  ...updated[currentIndex],
+                  markerKeyframes: [],
+                  introSpotlight: null,
+                  spotlightMode: null,
+                };
+                setClips(updated);
+                overlaysShared.value = [];
+                setHasTracking(false);
+                setSpotlightMode(null);
+                latestMarkerKeyframesRef.current = [];
+
+                try {
+                  await saveProject({ ...project, clips: updated });
+                } catch (err) {
+                  console.warn('⚠️  failed to persist spotlight reset', err);
+                }
+              }}
+              style={styles.secondaryButton}
+            >
+              <Text style={styles.buttonText}>Reset</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          /* ---- Nothing configured yet ---- */
+          <TouchableOpacity
+            onPress={() => setSpotlightModalOpen(true)}
+            style={styles.primaryButton}
+          >
+            <Text style={styles.buttonText}>Set Up</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+        {/* ──────────────────────────────────────────────── */}
+        <Modal visible={spotlightModalOpen} transparent animationType="fade">
+          {/* Dim backdrop */}
+          <TouchableOpacity
+            style={styles.backdrop}
+            activeOpacity={1}
+            onPress={() => setSpotlightModalOpen(false)}
+          />
+          {/* Action sheet */}
+          <View style={styles.spotlightSheet}>
+            {[
+              {
+                label: 'Intro Spotlight',
+                mode: SPOTLIGHT_MODES.INTRO,
+                subtitle: 'Best for quick plays. Freeze the frame and point out who to watch.',
+              },
+              {
+                label: 'Guided Follow',
+                mode: SPOTLIGHT_MODES.GUIDED,
+                subtitle: 'Track the athlete across the clip by placing markers on key frames.',
+              },
+            ].map(({ label, mode, subtitle }) => (
+              <TouchableOpacity
+                key={mode}
+                onPress={() => {
+                  setSpotlightModalOpen(false);
+                  handlePlayerSpotlight(mode);     // 🆕 helper below 
+                }}
+                style={styles.sheetRow}
+              >
+                <Text style={styles.sheetTitle}>{label}</Text>
+                <Text style={styles.sheetSub}>{subtitle}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </Modal>
 
         {/* Export */}
         <View style={styles.exportControls}>
@@ -1077,5 +1411,26 @@ const styles = StyleSheet.create({
     height: 4,
     backgroundColor: "white", //'#fff',
     borderRadius: 2,
+  },
+  backdrop: { 
+    flex:1, 
+    backgroundColor:'rgba(0,0,0,0.4)' 
+  },
+  spotlightSheet: {
+    position:'absolute', bottom:0, left:0, right:0,
+    backgroundColor:'#222', paddingVertical:12, paddingHorizontal:16,
+    borderTopLeftRadius:12, borderTopRightRadius:12,
+  },
+  sheetRow:{ 
+    paddingVertical:12 
+  },
+  sheetTitle:{ 
+    color:'#fff', 
+    fontSize:16, 
+    fontWeight:'600' 
+  },
+  sheetSub:{ 
+    color:'#aaa', 
+    fontSize:12 
   },
 });
