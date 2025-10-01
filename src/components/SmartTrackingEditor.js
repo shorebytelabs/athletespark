@@ -17,6 +17,7 @@ const SmartTrackingEditor = ({
   aspectRatio,
   smartZoomKeyframes,
   markerKeyframes,
+  // TEMPORARILY DISABLED: Default to GUIDED but will be overridden by Intro Spotlight calls
   spotlightMode = SPOTLIGHT_MODES.GUIDED,
   onFinish,
 }) => {

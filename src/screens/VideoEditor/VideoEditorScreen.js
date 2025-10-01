@@ -1,3 +1,7 @@
+// TEMPORARILY DISABLED: Guided Follow option in Player Spotlight
+// - All Guided Follow code is preserved but inactive
+// - Only Intro Spotlight is available to users
+// - To re-enable: uncomment Guided Follow options in modal and restore conditional logic
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -1015,28 +1019,35 @@ return (
         <View style={{ flexDirection: 'column' }}>
           <Text style={styles.subtitle}>Player Spotlight:</Text>
 
-          {(spotlightMode === SPOTLIGHT_MODES.GUIDED ||
-            spotlightMode === SPOTLIGHT_MODES.INTRO) && (
+          {/* TEMPORARILY DISABLED: Only show configured status for Intro Spotlight, hide Guided Follow */}
+          {/* TEMPORARILY DISABLED: Configured text - will be shown later */}
+          {/* {spotlightMode === SPOTLIGHT_MODES.INTRO && (
             <Text style={{ color: '#aaa', fontSize: 12, marginTop: 2 }}>
-              {spotlightMode === SPOTLIGHT_MODES.GUIDED
-                ? 'Guided Follow'
-                : 'Intro Spotlight'}{' '}
-              configured
+              Configured
             </Text>
-          )}
+          )} */}
+          {/* TEMPORARILY DISABLED: Guided Follow status - code preserved for future re-enabling */}
+          {/* {spotlightMode === SPOTLIGHT_MODES.GUIDED && (
+            <Text style={{ color: '#aaa', fontSize: 12, marginTop: 2 }}>
+              Guided Follow configured
+            </Text>
+          )} */}
         </View>
 
         {/* Right side: buttons or setup */}
-        {spotlightMode === SPOTLIGHT_MODES.GUIDED ||
-        spotlightMode === SPOTLIGHT_MODES.INTRO ? (
+        {/* TEMPORARILY DISABLED: Only handle Intro Spotlight, Guided Follow disabled */}
+        {spotlightMode === SPOTLIGHT_MODES.INTRO ? (
           /* ---- Already configured ---- */
           <View style={styles.actionGroup}>
             {/* Edit */}
             <TouchableOpacity
               onPress={() =>
-                spotlightMode === SPOTLIGHT_MODES.GUIDED
-                  ? handleSmartTracking([...overlaysShared.value])
-                  : handlePlayerSpotlight(SPOTLIGHT_MODES.INTRO) // intro re-edit
+                // TEMPORARILY DISABLED: Only handle Intro Spotlight re-edit
+                handlePlayerSpotlight(SPOTLIGHT_MODES.INTRO)
+                // TEMPORARILY DISABLED: Guided Follow edit - code preserved for future re-enabling
+                // spotlightMode === SPOTLIGHT_MODES.GUIDED
+                //   ? handleSmartTracking([...overlaysShared.value])
+                //   : handlePlayerSpotlight(SPOTLIGHT_MODES.INTRO)
               }
               style={styles.secondaryButton}
             >
@@ -1046,6 +1057,7 @@ return (
             {/* Reset */}
             <TouchableOpacity
               onPress={async () => {
+                // TEMPORARILY DISABLED: Only reset Intro Spotlight, Guided Follow logic preserved for future re-enabling
                 const updated = [...clips];
                 updated[currentIndex] = {
                   ...updated[currentIndex],
@@ -1072,8 +1084,9 @@ return (
           </View>
         ) : (
           /* ---- Nothing configured yet ---- */
+          /* TEMPORARILY DISABLED: Guided Follow option hidden, auto-select Intro Spotlight */
           <TouchableOpacity
-            onPress={() => setSpotlightModalOpen(true)}
+            onPress={() => handlePlayerSpotlight(SPOTLIGHT_MODES.INTRO)}
             style={styles.primaryButton}
           >
             <Text style={styles.buttonText}>Set Up</Text>
@@ -1091,17 +1104,19 @@ return (
           />
           {/* Action sheet */}
           <View style={styles.spotlightSheet}>
+            {/* TEMPORARILY DISABLED: Guided Follow option hidden, only Intro Spotlight available */}
             {[
               {
                 label: 'Intro Spotlight',
                 mode: SPOTLIGHT_MODES.INTRO,
                 subtitle: 'Best for quick plays. Freeze the frame and point out who to watch.',
               },
-              {
-                label: 'Guided Follow',
-                mode: SPOTLIGHT_MODES.GUIDED,
-                subtitle: 'Track the athlete across the clip by placing markers on key frames.',
-              },
+              // TEMPORARILY DISABLED: Guided Follow option - code preserved for future re-enabling
+              // {
+              //   label: 'Guided Follow',
+              //   mode: SPOTLIGHT_MODES.GUIDED,
+              //   subtitle: 'Track the athlete across the clip by placing markers on key frames.',
+              // },
             ].map(({ label, mode, subtitle }) => (
               <TouchableOpacity
                 key={mode}

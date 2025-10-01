@@ -15,6 +15,7 @@ const SmartTrackingScreen = ({ route, navigation }) => {
     aspectRatio,
     smartZoomKeyframes, // may affect transform playback
     markerKeyframes = [], // initial marker overlay keyframes if editing
+    // TEMPORARILY DISABLED: Default to GUIDED but will be overridden by Intro Spotlight calls
     spotlightMode = SPOTLIGHT_MODES.GUIDED,   
     onTrackingComplete, // callback to receive final keyframes
   } = route.params || {};
