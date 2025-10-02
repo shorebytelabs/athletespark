@@ -321,7 +321,9 @@ const saveProject = async (patch) => {
   // Debug currentClip changes
   useEffect(() => {
     console.log('🎯 Current clip changed:', currentClip?.id, 'markerKeyframes:', currentClip?.markerKeyframes);
-  }, [currentClip?.id, currentClip?.markerKeyframes]);
+    console.log('🎯 Current clip spotlight mode:', currentClip?.spotlightMode);
+    console.log('🎯 Current clip has markerKeyframes:', !!currentClip?.markerKeyframes, 'length:', currentClip?.markerKeyframes?.length);
+  }, [currentClip?.id, currentClip?.markerKeyframes, currentClip?.spotlightMode]);
 
   // Spotlight effect implementation
   useEffect(() => {
@@ -349,14 +351,15 @@ const saveProject = async (patch) => {
     // Check if we're at the spotlight time
     const checkSpotlight = (currentTime) => {
       const timeDiff = Math.abs(currentTime - spotlightTime);
-      const isAtSpotlightTime = timeDiff < 0.1; // 100ms tolerance
+      const isAtSpotlightTime = timeDiff < 0.3; // 300ms tolerance to account for video playback precision
 
       // Check if we've triggered this spotlight recently (prevent double-triggering)
       const timeSinceLastTrigger = Math.abs(currentTime - lastTriggeredTimeRef.current);
       const hasCooldownPassed = lastTriggeredTimeRef.current === 0 || timeSinceLastTrigger > 3.0; // Allow first trigger, then 3 second cooldown
       
-      // Debug cooldown status when close to spotlight time
-      if (Math.abs(currentTime - spotlightTime) < 0.5) {
+      // Debug timing when close to spotlight time
+      if (Math.abs(currentTime - spotlightTime) < 0.8) {
+        console.log('🎯 Timing check - currentTime:', currentTime.toFixed(2), 'spotlightTime:', spotlightTime.toFixed(2), 'timeDiff:', timeDiff.toFixed(2), 'isAtSpotlightTime:', isAtSpotlightTime);
         console.log('🎯 Cooldown check - currentTime:', currentTime.toFixed(2), 'lastTriggered:', lastTriggeredTimeRef.current.toFixed(2), 'timeSince:', timeSinceLastTrigger.toFixed(2), 'cooldownPassed:', hasCooldownPassed);
       }
 
