@@ -116,6 +116,18 @@ const saveProject = async (patch) => {
     currentClip?.spotlightMode ?? null
   );
 
+  // Spotlight effect state
+  const [spotlightState, setSpotlightState] = useState({
+    isActive: false,
+    startTime: 0,
+    duration: 0,
+    originalOverlays: [],
+    spotlightOverlay: null
+  });
+
+  // Create effective overlays that show spotlight overlay when active, otherwise original overlays
+  const effectiveOverlaysShared = useSharedValue([]);
+
   let containerWidth, containerHeight;
 
   if (aspectRatio.ratio < 1) {
@@ -262,6 +274,97 @@ const saveProject = async (patch) => {
       setSafeUri(null); // Clear URI on unmount or before update
     };
   }, [currentClip?.uri]);
+
+  // Spotlight effect implementation
+  useEffect(() => {
+    if (!spotlightMode || !currentClip?.markerKeyframes || !Array.isArray(currentClip.markerKeyframes) || currentClip.markerKeyframes.length === 0) {
+      return;
+    }
+
+    const spotlight = currentClip.markerKeyframes[0]; // MVP: only support one spotlight
+    if (!spotlight || typeof spotlight.timestamp !== 'number') {
+      return;
+    }
+
+    const spotlightTime = spotlight.timestamp;
+    const freezeDuration = spotlight.freezeDuration || 0.7;
+
+    // Check if we're at the spotlight time
+    const checkSpotlight = (currentTime) => {
+      const timeDiff = Math.abs(currentTime - spotlightTime);
+      const isAtSpotlightTime = timeDiff < 0.1; // 100ms tolerance
+
+      if (isAtSpotlightTime && !spotlightState.isActive) {
+        // Start spotlight - store current overlays and create spotlight overlay
+        const currentOverlays = overlaysShared.value || [];
+        const startTimestamp = Date.now(); // Use actual timestamp for timer
+        setSpotlightState({
+          isActive: true,
+          startTime: startTimestamp, // Store actual timestamp in milliseconds
+          duration: freezeDuration,
+          originalOverlays: [...currentOverlays],
+          spotlightOverlay: {
+            timestamp: spotlightTime,
+            x: spotlight.x || 200,
+            y: spotlight.y || 400,
+            markerType: spotlight.markerType || 'circle'
+          }
+        });
+        
+        // Pause the video
+        setPaused(true);
+        console.log('🎯 Spotlight started at video time:', spotlightTime, 'for duration:', freezeDuration, 'seconds');
+        console.log('🎯 Actual start timestamp:', startTimestamp);
+      }
+    };
+
+    // Check if spotlight should end - use timer instead of video time
+    const checkSpotlightEnd = () => {
+      if (spotlightState.isActive) {
+        const now = Date.now();
+        const elapsed = (now - spotlightState.startTime) / 1000; // Convert to seconds
+        console.log('🎯 Spotlight check - elapsed:', elapsed.toFixed(2), 'duration:', spotlightState.duration);
+        if (elapsed >= spotlightState.duration) {
+          // End spotlight
+          setSpotlightState({
+            isActive: false,
+            startTime: 0,
+            duration: 0,
+            originalOverlays: [],
+            spotlightOverlay: null
+          });
+          
+          // Resume video playback
+          setPaused(false);
+          console.log('🎯 Spotlight ended after:', elapsed.toFixed(2), 'seconds');
+        }
+      }
+    };
+
+    // Monitor current time for spotlight timing
+    const interval = setInterval(() => {
+      const currentTime = currentTimeShared.value;
+      checkSpotlight(currentTime);
+      checkSpotlightEnd(); // No need to pass currentTime since we use Date.now()
+    }, 50); // Check every 50ms
+
+    return () => clearInterval(interval);
+  }, [spotlightMode, currentClip?.markerKeyframes, spotlightState.isActive, spotlightState.startTime, spotlightState.duration, currentTimeShared, setPaused]);
+
+  // Update effective overlays based on spotlight state
+  useEffect(() => {
+    if (spotlightState.isActive && spotlightState.spotlightOverlay) {
+      // Show only the spotlight overlay during spotlight
+      runOnUI(() => {
+        effectiveOverlaysShared.value = [spotlightState.spotlightOverlay];
+      })();
+    } else {
+      // Show original overlays when spotlight is not active
+      runOnUI(() => {
+        effectiveOverlaysShared.value = spotlightState.originalOverlays;
+      })();
+    }
+  }, [spotlightState.isActive, spotlightState.spotlightOverlay, spotlightState.originalOverlays]);
 
   // Collect initial marker keyframes for SmartTracking
   const collectInitialMarkerKeyframes = () => {
@@ -845,7 +948,7 @@ return (
                 y={0}
                 isPreview={isPreview}
                 keyframes={keyframesShared}
-                overlays={overlaysShared}
+                overlays={effectiveOverlaysShared}
                 gestureModeShared={gestureModeShared}
                 currentTime={currentTimeShared}
                 trimStart={trimStart}
@@ -861,6 +964,9 @@ return (
                 onProgress={onProgress}
                 videoNaturalWidthShared={videoNaturalWidthShared}
                 videoNaturalHeightShared={videoNaturalHeightShared}
+                // Spotlight effect props
+                spotlightMode={spotlightMode}
+                spotlightData={currentClip?.markerKeyframes || []}
               />
             )}
           </Animated.View>

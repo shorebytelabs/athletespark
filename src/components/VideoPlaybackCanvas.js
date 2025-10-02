@@ -37,6 +37,9 @@ const VideoPlaybackCanvas = ({
   videoNaturalHeightShared,
   overlays,
   gestureModeShared,
+  // Spotlight effect props
+  spotlightMode,
+  spotlightData,
 }) => {
   const offsetX = useSharedValue(x);
   const offsetY = useSharedValue(y);
@@ -45,6 +48,99 @@ const VideoPlaybackCanvas = ({
   // Note: Using existing zoom logic instead of temporary zoom values
   // The zoom mode now works exactly like Marker tile Zoom option
 
+  // Spotlight effect state - using React state instead of shared values to avoid Reanimated errors
+  const [spotlightState, setSpotlightState] = useState({
+    isActive: false,
+    startTime: 0,
+    duration: 0,
+    marker: null,
+    isPaused: false
+  });
+
+  // Spotlight detection using useEffect instead of useAnimatedReaction to avoid Reanimated errors
+  // Spotlight effect implementation - TEMPORARILY DISABLED
+  // TODO: Re-implement with safer approach to avoid Reanimated errors
+  /*
+  useEffect(() => {
+    if (!spotlightData || !Array.isArray(spotlightData) || spotlightData.length === 0) {
+      return;
+    }
+
+    const spotlight = spotlightData[0]; // Only support one spotlight for MVP
+    if (!spotlight || typeof spotlight.timestamp !== 'number') {
+      return;
+    }
+
+    const spotlightTime = spotlight.timestamp;
+    const freezeDuration = spotlight.freezeDuration || 0.7;
+
+    // Check if we're at the spotlight time
+    const checkSpotlight = () => {
+      const currentTimeValue = currentTime?.value || 0;
+      const timeDiff = Math.abs(currentTimeValue - spotlightTime);
+      const isAtSpotlightTime = timeDiff < 0.1; // 100ms tolerance
+
+      if (isAtSpotlightTime && !spotlightState.isActive) {
+        // Start spotlight
+        setSpotlightState({
+          isActive: true,
+          startTime: spotlightTime,
+          duration: freezeDuration,
+          marker: {
+            x: spotlight.x || 0,
+            y: spotlight.y || 0,
+            type: spotlight.markerType || 'circle'
+          },
+          isPaused: true
+        });
+        
+        // Pause the video
+        setPaused(true);
+      }
+    };
+
+    // Check if spotlight should end
+    const checkSpotlightEnd = () => {
+      if (spotlightState.isActive) {
+        const currentTimeValue = currentTime?.value || 0;
+        const elapsed = currentTimeValue - spotlightState.startTime;
+        if (elapsed >= spotlightState.duration) {
+          // End spotlight
+          setSpotlightState({
+            isActive: false,
+            startTime: 0,
+            duration: 0,
+            marker: null,
+            isPaused: false
+          });
+          
+          // Resume video playback
+          setPaused(false);
+        }
+      }
+    };
+
+    // Set up interval to check spotlight timing
+    const interval = setInterval(() => {
+      checkSpotlight();
+      checkSpotlightEnd();
+    }, 50); // Check every 50ms
+
+    return () => clearInterval(interval);
+  }, [spotlightData, spotlightState.isActive, spotlightState.startTime, spotlightState.duration, currentTime, setPaused]);
+  */
+
+  // Effective paused state that includes spotlight freezing - TEMPORARILY DISABLED
+  // const effectivePausedShared = useSharedValue(false);
+  
+  // Update effective paused state when paused or spotlight state changes - TEMPORARILY DISABLED
+  /*
+  useEffect(() => {
+    const effectivePaused = paused || spotlightState.isActive;
+    effectivePausedShared.value = effectivePaused;
+  }, [paused, spotlightState.isActive]);
+  */
+
   const panStartX = useSharedValue(0);
   const panStartY = useSharedValue(0);
 
@@ -52,20 +148,11 @@ const VideoPlaybackCanvas = ({
   const markerPanStartY = useSharedValue(0);
 
   const editingMode = useDerivedValue(() => {
-    const isNotPreview = !isPreview?.value;
-    const hasKeyframes = Array.isArray(keyframes?.value);
-    const keyframeCount = keyframes?.value?.length || 0;
+    const isNotPreview = isPreview ? !isPreview.value : true;
+    const hasKeyframes = keyframes ? Array.isArray(keyframes.value) : false;
+    const keyframeCount = keyframes && keyframes.value ? keyframes.value.length : 0;
     const hasThreeKeyframes = keyframeCount === 3;
     const result = isNotPreview && hasKeyframes && hasThreeKeyframes;
-    
-    console.log("🔍 editingMode check:", {
-      isNotPreview,
-      hasKeyframes,
-      keyframeCount,
-      hasThreeKeyframes,
-      result,
-      keyframes: keyframes?.value
-    });
     
     return result;
   });
@@ -74,7 +161,7 @@ const VideoPlaybackCanvas = ({
   const [gestureMode, setGestureMode] = useState('zoom');
 
   useAnimatedReaction(
-    () => gestureModeShared?.value,
+    () => gestureModeShared ? gestureModeShared.value : null,
     (val) => {
       if (val && typeof val === 'string') {
         runOnJS(setGestureMode)(val);
@@ -84,13 +171,13 @@ const VideoPlaybackCanvas = ({
   );
 
   useEffect(() => {
-    if (!isPreview && Array.isArray(keyframes?.value) && keyframes.value.length === 3) {
+    if (!isPreview && keyframes && Array.isArray(keyframes.value) && keyframes.value.length === 3) {
       offsetX.value = x;
       offsetY.value = y;
       scale.value = zoom;
       console.log('🟢 Updated values for clip:', { x, y, zoom });
     }
-  }, [x, y, zoom, isPreview, keyframes?.value]);
+  }, [x, y, zoom, isPreview, keyframes]);
 
   const pan = Gesture.Pan()
     .onBegin(() => {
@@ -253,12 +340,11 @@ const VideoPlaybackCanvas = ({
   );
 
   const transformStyle = useAnimatedStyle(() => {
-    const layout = videoLayout?.value;
-    const naturalW = videoNaturalWidthShared?.value;
-    const naturalH = videoNaturalHeightShared?.value;
+    const layout = videoLayout ? videoLayout.value : null;
+    const naturalW = videoNaturalWidthShared ? videoNaturalWidthShared.value : null;
+    const naturalH = videoNaturalHeightShared ? videoNaturalHeightShared.value : null;
 
     if (!layout || !naturalW || !naturalH || naturalW <= 0 || naturalH <= 0) {
-      console.log("layout: ", layout, "naturalW: ", naturalW, "naturalH: ", naturalH);
       return {};
     }
 
@@ -267,8 +353,8 @@ const VideoPlaybackCanvas = ({
 
     let tx = 0, ty = 0, sc = 1;
 
-    const isPreviewing = isPreview?.value;
-    const hasValidKeyframes = Array.isArray(keyframes?.value) && keyframes.value.length >= 3;
+    const isPreviewing = isPreview ? isPreview.value : false;
+    const hasValidKeyframes = keyframes ? Array.isArray(keyframes.value) && keyframes.value.length >= 3 : false;
 
     // 🛑 Fallback for non-smart-zoom clips (or bad data)
     if (isPreviewing && !hasValidKeyframes) {
@@ -285,15 +371,15 @@ const VideoPlaybackCanvas = ({
       };
     }
 
-    const t = currentTime.value;
+    const t = currentTime ? currentTime.value : 0;
     const interpolated = isPreviewing && hasValidKeyframes
       ? interpolateKeyframesSpline(keyframes.value, t)
       : null;
 
     // Track these always to ensure transform reactivity
-    const txRaw = offsetX.value;
-    const tyRaw = offsetY.value;
-    const scRaw = scale.value;
+    const txRaw = offsetX ? offsetX.value : 0;
+    const tyRaw = offsetY ? offsetY.value : 0;
+    const scRaw = scale ? scale.value : 1;
 
     if (interpolated) {
       tx = interpolated.x * fitScale;
@@ -333,9 +419,9 @@ const VideoPlaybackCanvas = ({
   const [canRenderOverlay, setCanRenderOverlay] = useState(false);
 
   const layoutReady = useDerivedValue(() => {
-    const layout = videoLayout?.value;
-    const w = videoNaturalWidthShared?.value;
-    const h = videoNaturalHeightShared?.value;
+    const layout = videoLayout ? videoLayout.value : null;
+    const w = videoNaturalWidthShared ? videoNaturalWidthShared.value : null;
+    const h = videoNaturalHeightShared ? videoNaturalHeightShared.value : null;
 
     return (
       layout &&
@@ -431,6 +517,30 @@ const VideoPlaybackCanvas = ({
             />
           )
         )}
+
+        {/* 🎯 Spotlight marker overlay (only during spotlight freeze) */}
+        {/* Spotlight marker overlay - TEMPORARILY DISABLED */}
+        {/*
+        {spotlightState.isActive && spotlightState.marker && (
+          <MarkerOverlay
+            key="spotlight-marker"
+            currentKeyframeIndex={{ value: 0 }}
+            overlays={{
+              value: [{
+                timestamp: spotlightState.startTime,
+                x: spotlightState.marker.x,
+                y: spotlightState.marker.y,
+                markerType: spotlightState.marker.type
+              }]
+            }}
+            interpolate={false}
+            currentTime={currentTime}
+            videoLayout={videoLayout}
+            videoNaturalWidthShared={videoNaturalWidthShared}
+            videoNaturalHeightShared={videoNaturalHeightShared}
+          />
+        )}
+        */}
       </Animated.View>
     </GestureDetector>
   );
