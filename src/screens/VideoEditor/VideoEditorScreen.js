@@ -125,6 +125,49 @@ const saveProject = async (patch) => {
     spotlightOverlay: null
   });
 
+  // Track when spotlight was last triggered to prevent double-triggering
+  const lastTriggeredTimeRef = useRef(0);
+  
+  // Reset cooldown when clip changes or component mounts
+  useEffect(() => {
+    lastTriggeredTimeRef.current = 0;
+    console.log('🎯 Cooldown reset - clip changed or component mounted, clipId:', currentClip?.id);
+  }, [currentClip?.id]);
+  
+  // Also reset cooldown when component first mounts
+  useEffect(() => {
+    lastTriggeredTimeRef.current = 0;
+    console.log('🎯 Cooldown reset - component mounted');
+  }, []); // Empty dependency array means this runs once on mount
+  
+  // Note: Removed cooldown reset on pause change to prevent double-triggering
+  // The cooldown should only reset when video goes back to beginning or clip changes
+  
+  // Reset cooldown when video goes back to the beginning (but not during spotlight pause/resume)
+  useEffect(() => {
+    const currentTime = currentTimeShared.value;
+    console.log('🎯 Time check - currentTime:', currentTime, 'lastTriggered:', lastTriggeredTimeRef.current);
+    
+    // Only reset cooldown if video is at the very beginning AND we're not in a spotlight pause
+    if (currentTime < 0.1 && lastTriggeredTimeRef.current > 0 && !spotlightState.isActive) {
+      lastTriggeredTimeRef.current = 0;
+      console.log('🎯 Cooldown reset - video at beginning, currentTime:', currentTime);
+    }
+  }, [currentTimeShared.value, spotlightState.isActive]);
+
+  // Note: Removed cooldown reset on pause change to prevent double-triggering
+  // The cooldown should only reset when video goes back to beginning, clip changes, or manual play button press
+
+  // Add a manual reset function for the play button
+  const handlePlayPause = () => {
+    // Reset cooldown when starting a new play session
+    if (paused && lastTriggeredTimeRef.current > 0) {
+      lastTriggeredTimeRef.current = 0;
+      console.log('🎯 Cooldown reset - manual reset on play button press');
+    }
+    togglePlayPause();
+  };
+
   // Create effective overlays that show spotlight overlay when active, otherwise original overlays
   const effectiveOverlaysShared = useSharedValue([]);
 
@@ -275,26 +318,52 @@ const saveProject = async (patch) => {
     };
   }, [currentClip?.uri]);
 
+  // Debug currentClip changes
+  useEffect(() => {
+    console.log('🎯 Current clip changed:', currentClip?.id, 'markerKeyframes:', currentClip?.markerKeyframes);
+  }, [currentClip?.id, currentClip?.markerKeyframes]);
+
   // Spotlight effect implementation
   useEffect(() => {
-    if (!spotlightMode || !currentClip?.markerKeyframes || !Array.isArray(currentClip.markerKeyframes) || currentClip.markerKeyframes.length === 0) {
+    console.log('🎯 Spotlight useEffect triggered for clip:', currentClip?.id, 'markerKeyframes:', currentClip?.markerKeyframes);
+    
+    if (!currentClip?.markerKeyframes || !Array.isArray(currentClip.markerKeyframes) || currentClip.markerKeyframes.length === 0) {
+      console.log('🎯 No markerKeyframes found for clip:', currentClip?.id);
       return;
     }
 
     const spotlight = currentClip.markerKeyframes[0]; // MVP: only support one spotlight
+    console.log('🎯 Spotlight data:', spotlight);
+    
     if (!spotlight || typeof spotlight.timestamp !== 'number') {
+      console.log('🎯 Invalid spotlight data for clip:', currentClip?.id, 'spotlight:', spotlight);
       return;
     }
 
     const spotlightTime = spotlight.timestamp;
     const freezeDuration = spotlight.freezeDuration || 0.7;
+    
+    console.log('🎯 Spotlight configured - time:', spotlightTime, 'duration:', freezeDuration, 'marker:', spotlight.markerType);
+    console.log('🎯 Initial cooldown state - lastTriggeredTimeRef:', lastTriggeredTimeRef.current);
 
     // Check if we're at the spotlight time
     const checkSpotlight = (currentTime) => {
       const timeDiff = Math.abs(currentTime - spotlightTime);
       const isAtSpotlightTime = timeDiff < 0.1; // 100ms tolerance
 
-      if (isAtSpotlightTime && !spotlightState.isActive) {
+      // Check if we've triggered this spotlight recently (prevent double-triggering)
+      const timeSinceLastTrigger = Math.abs(currentTime - lastTriggeredTimeRef.current);
+      const hasCooldownPassed = lastTriggeredTimeRef.current === 0 || timeSinceLastTrigger > 3.0; // Allow first trigger, then 3 second cooldown
+      
+      // Debug cooldown status when close to spotlight time
+      if (Math.abs(currentTime - spotlightTime) < 0.5) {
+        console.log('🎯 Cooldown check - currentTime:', currentTime.toFixed(2), 'lastTriggered:', lastTriggeredTimeRef.current.toFixed(2), 'timeSince:', timeSinceLastTrigger.toFixed(2), 'cooldownPassed:', hasCooldownPassed);
+      }
+
+      if (isAtSpotlightTime && !spotlightState.isActive && hasCooldownPassed) {
+        // Update the ref immediately to prevent double-triggering
+        lastTriggeredTimeRef.current = currentTime;
+        
         // Start spotlight - store current overlays and create spotlight overlay
         const currentOverlays = overlaysShared.value || [];
         const startTimestamp = Date.now(); // Use actual timestamp for timer
@@ -315,6 +384,8 @@ const saveProject = async (patch) => {
         setPaused(true);
         console.log('🎯 Spotlight started at video time:', spotlightTime, 'for duration:', freezeDuration, 'seconds');
         console.log('🎯 Actual start timestamp:', startTimestamp);
+      } else if (isAtSpotlightTime && !spotlightState.isActive && !hasCooldownPassed) {
+        console.log('🎯 Spotlight blocked by cooldown - time since last trigger:', timeSinceLastTrigger.toFixed(2), 'seconds');
       }
     };
 
@@ -349,7 +420,7 @@ const saveProject = async (patch) => {
     }, 50); // Check every 50ms
 
     return () => clearInterval(interval);
-  }, [spotlightMode, currentClip?.markerKeyframes, spotlightState.isActive, spotlightState.startTime, spotlightState.duration, currentTimeShared, setPaused]);
+  }, [currentClip?.markerKeyframes, spotlightState.isActive, spotlightState.startTime, spotlightState.duration, currentTimeShared, setPaused]);
 
   // Update effective overlays based on spotlight state
   useEffect(() => {
@@ -987,7 +1058,7 @@ return (
 
             {/* Buttons */}
             <View style={styles.controlsRow}>
-              <TouchableOpacity onPress={togglePlayPause} style={styles.playPauseButton}>
+              <TouchableOpacity onPress={handlePlayPause} style={styles.playPauseButton}>
                 <Text style={styles.playPauseText}>
                   {paused ? '▶' : '⏸︎'}
                 </Text>
