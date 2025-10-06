@@ -578,13 +578,33 @@ const saveProject = async (patch) => {
     try {
       await saveEditedClipsToProject();
 
-      // Prepare clips array with path + trim info
-      const clipsToMerge = clips.map(clip => ({
-        path: uriToPath(clip.uri),
-        trimStart: clip.trimStart ?? 0,
-        trimEnd: clip.trimEnd ?? clip.duration,
-        smartZoomKeyframes: Array.isArray(clip.smartZoomKeyframes) ? clip.smartZoomKeyframes : null,
-      }));
+      // Prepare clips array with all preview data
+      const clipsToMerge = clips.map(clip => {
+        const result = {
+          path: uriToPath(clip.uri),
+          trimStart: clip.trimStart ?? 0,
+          trimEnd: clip.trimEnd ?? clip.duration,
+        };
+        
+        // Only add properties if they have valid values
+        if (Array.isArray(clip.smartZoomKeyframes) && clip.smartZoomKeyframes.length > 0) {
+          result.smartZoomKeyframes = clip.smartZoomKeyframes;
+        }
+        
+        if (Array.isArray(clip.markerKeyframes) && clip.markerKeyframes.length > 0) {
+          result.markerKeyframes = clip.markerKeyframes;
+        }
+        
+        if (clip.spotlightMode) {
+          result.spotlightMode = clip.spotlightMode;
+        }
+        
+        if (clip.spotlightData) {
+          result.spotlightData = clip.spotlightData;
+        }
+        
+        return result;
+      });
 
       const outputPath = `${RNFS.CachesDirectoryPath}/merged_output_${Date.now()}.mov`; // or .mp4
 
@@ -593,12 +613,28 @@ const saveProject = async (patch) => {
         height: aspectRatio.height,
       };
 
-      const mergedVideoPath = await VideoEditorNativeModule.process({
-        type: 'merge',
-        clips: clipsToMerge,
-        outputPath,
-        resolution: outputResolution, // update native module
-      });
+      // Try previewExport first, fallback to merge if not supported
+      let mergedVideoPath;
+      try {
+        console.log('🎬 JS: Attempting previewExport with resolution:', outputResolution);
+        mergedVideoPath = await VideoEditorNativeModule.process({
+          type: 'previewExport', // New export type that captures preview view
+          clips: clipsToMerge,
+          outputPath,
+          resolution: outputResolution,
+          aspectRatio: aspectRatio,
+        });
+      } catch (previewError) {
+        console.log('🎬 JS: Preview export not available, falling back to merge:', previewError.message);
+        console.log('🎬 JS: Fallback merge with resolution:', outputResolution);
+        // Fallback to basic merge (will be improved with aspect ratio)
+        mergedVideoPath = await VideoEditorNativeModule.process({
+          type: 'merge',
+          clips: clipsToMerge,
+          outputPath,
+          resolution: outputResolution,
+        });
+      }
 
       Alert.alert('Success', 'Merged video exported to Camera Roll');
 

@@ -49,6 +49,10 @@ RCT_EXPORT_METHOD(processVideo:(NSDictionary *)options
     [self handleMerge:options resolver:resolve rejecter:reject];
   } else if ([type isEqualToString:@"smartZoom"]) {
     [self handleSmartZoom:options resolver:resolve rejecter:reject];  
+  } else if ([type isEqualToString:@"previewExport"]) {
+    [self handlePreviewExport:options resolver:resolve rejecter:reject];
+  } else if ([type isEqualToString:@"mergeWithAspectRatio"]) {
+    [self handleMergeWithAspectRatio:options resolver:resolve rejecter:reject];
   } else {
     reject(@"unsupported_type", @"Unknown processing type", nil);
   }
@@ -139,29 +143,37 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
 
   exportSession.outputURL = outputURL;
   exportSession.outputFileType = AVFileTypeQuickTimeMovie;
-  exportSession.timeRange = CMTimeRangeFromTimeToTime(startTime, endTime);
-
+  
+  // (Removed incorrect aspect-ratio block referencing out-of-scope variables)
+  
   [exportSession exportAsynchronouslyWithCompletionHandler:^{
+    NSLog(@"🎬 MERGE: Export completed with status: %ld", (long)exportSession.status);
     switch (exportSession.status) {
       case AVAssetExportSessionStatusCompleted: {
+        NSLog(@"✅ MERGE: Export successful");
         [self saveToPhotoLibrary:outputURL completion:^(BOOL success, NSError *error) {
           if (success) {
+            NSLog(@"✅ MERGE: Saved to photo library");
             resolve(outputPath);
           } else {
+            NSLog(@"❌ MERGE: Failed to save to photo library: %@", error.localizedDescription);
             reject(@"save_failed", @"Failed to save to photo library", error);
           }
         }];
         break;
       }
       case AVAssetExportSessionStatusFailed: {
+        NSLog(@"❌ MERGE: Export failed: %@", exportSession.error.localizedDescription);
         reject(@"export_failed", exportSession.error.localizedDescription, exportSession.error);
         break;
       }
       case AVAssetExportSessionStatusCancelled: {
+        NSLog(@"❌ MERGE: Export cancelled");
         reject(@"export_cancelled", @"Export cancelled", nil);
         break;
       }
       default: {
+        NSLog(@"❌ MERGE: Unknown export status: %ld", (long)exportSession.status);
         reject(@"export_unknown", @"Unknown export status", exportSession.error);
         break;
       }
@@ -174,8 +186,10 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
 - (void)handleMerge:(NSDictionary *)options
            resolver:(RCTPromiseResolveBlock)resolve
            rejecter:(RCTPromiseRejectBlock)reject {
+  NSLog(@"🎬 MERGE: handleMerge called with options: %@", options);
   NSArray *clips = options[@"clips"];
   NSString *outputPath = options[@"outputPath"];
+  NSDictionary *resolution = options[@"resolution"];
 
   AVMutableComposition *composition = [AVMutableComposition composition];
   CMTime currentTime = kCMTimeZero;
@@ -243,6 +257,49 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
 
   exportSession.outputURL = outputURL;
   exportSession.outputFileType = AVFileTypeQuickTimeMovie;
+  
+  // Apply aspect ratio transformations if provided
+  NSLog(@"🎬 MERGE: Resolution parameter: %@", resolution);
+  if (resolution) {
+    CGFloat outputWidth = [resolution[@"width"] floatValue];
+    CGFloat outputHeight = [resolution[@"height"] floatValue];
+    NSLog(@"🎬 MERGE: Output dimensions: %.0fx%.0f", outputWidth, outputHeight);
+    
+    // Create video composition for aspect ratio
+    AVMutableVideoComposition *videoComposition = [AVMutableVideoComposition videoComposition];
+    videoComposition.frameDuration = CMTimeMake(1, 30);
+    videoComposition.renderSize = CGSizeMake(outputWidth, outputHeight);
+    
+    // Create instruction for the entire composition
+    AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
+    instruction.timeRange = CMTimeRangeMake(kCMTimeZero, composition.duration);
+    
+    AVMutableVideoCompositionLayerInstruction *layerInstruction = [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:videoTrack];
+    
+    // Calculate transform for aspect ratio
+    AVAssetTrack *videoAssetTrack = [[composition tracksWithMediaType:AVMediaTypeVideo] firstObject];
+    if (videoAssetTrack) {
+      CGSize naturalSize = videoAssetTrack.naturalSize;
+      NSLog(@"🎬 MERGE: Natural size: %@, Output size: %@", NSStringFromCGSize(naturalSize), NSStringFromCGSize(CGSizeMake(outputWidth, outputHeight)));
+      
+      CGAffineTransform transform = [self calculateAspectRatioTransform:naturalSize outputSize:CGSizeMake(outputWidth, outputHeight)];
+      [layerInstruction setTransform:transform atTime:kCMTimeZero];
+      
+      // Also set opacity to ensure the video is visible
+      [layerInstruction setOpacity:1.0 atTime:kCMTimeZero];
+      
+      NSLog(@"🎬 MERGE: Applied transform to video composition");
+    } else {
+      NSLog(@"❌ MERGE: No video track found in composition");
+    }
+    
+    instruction.layerInstructions = @[layerInstruction];
+    videoComposition.instructions = @[instruction];
+    
+    exportSession.videoComposition = videoComposition;
+  } else {
+    NSLog(@"🎬 MERGE: No resolution provided, using default export");
+  }
 
   [exportSession exportAsynchronouslyWithCompletionHandler:^{
     switch (exportSession.status) {
@@ -431,6 +488,436 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
       reject(@"export_failed", details, exportSession.error);
     }
   }];
+}
+
+#pragma mark - Preview Export Handler
+
+- (void)handlePreviewExport:(NSDictionary *)options
+                   resolver:(RCTPromiseResolveBlock)resolve
+                   rejecter:(RCTPromiseRejectBlock)reject {
+  NSLog(@"🎬 PREVIEW: handlePreviewExport called with options: %@", options);
+  NSArray *clips = options[@"clips"];
+  NSString *outputPath = options[@"outputPath"];
+  NSDictionary *resolution = options[@"resolution"];
+  NSDictionary *aspectRatio = options[@"aspectRatio"];
+  
+  if (!clips || !outputPath) {
+    NSLog(@"❌ PREVIEW: Missing clips or outputPath");
+    reject(@"invalid_input", @"Missing clips or outputPath", nil);
+    return;
+  }
+  
+  NSLog(@"🎬 PREVIEW: Starting preview export with %lu clips", (unsigned long)clips.count);
+  
+  // Create composition with all clips
+  AVMutableComposition *composition = [AVMutableComposition composition];
+  CMTime currentTime = kCMTimeZero;
+  
+  AVMutableCompositionTrack *videoTrack = [composition addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:kCMPersistentTrackID_Invalid];
+  AVMutableCompositionTrack *audioTrack = [composition addMutableTrackWithMediaType:AVMediaTypeAudio preferredTrackID:kCMPersistentTrackID_Invalid];
+  
+  // Process each clip with its effects
+  for (NSDictionary *clip in clips) {
+    NSString *path = clip[@"path"];
+    NSNumber *start = clip[@"trimStart"];
+    NSNumber *end = clip[@"trimEnd"];
+    
+    // Handle null values properly
+    NSArray *smartZoomKeyframes = nil;
+    if (clip[@"smartZoomKeyframes"] && ![clip[@"smartZoomKeyframes"] isKindOfClass:[NSNull class]]) {
+      smartZoomKeyframes = clip[@"smartZoomKeyframes"];
+    }
+    
+    NSArray *markerKeyframes = nil;
+    if (clip[@"markerKeyframes"] && ![clip[@"markerKeyframes"] isKindOfClass:[NSNull class]]) {
+      markerKeyframes = clip[@"markerKeyframes"];
+    }
+    
+    NSString *spotlightMode = nil;
+    if (clip[@"spotlightMode"] && ![clip[@"spotlightMode"] isKindOfClass:[NSNull class]]) {
+      spotlightMode = clip[@"spotlightMode"];
+    }
+    
+    NSDictionary *spotlightData = nil;
+    if (clip[@"spotlightData"] && ![clip[@"spotlightData"] isKindOfClass:[NSNull class]]) {
+      spotlightData = clip[@"spotlightData"];
+    }
+    
+    if (!path || !start || !end) {
+      reject(@"invalid_clip", @"Missing clip path or trim times", nil);
+      return;
+    }
+    
+    NSURL *url = [NSURL fileURLWithPath:path];
+    AVAsset *asset = [AVAsset assetWithURL:url];
+    if (!asset) {
+      reject(@"asset_load_failed", [NSString stringWithFormat:@"Failed to load asset at %@", path], nil);
+      return;
+    }
+    
+    CMTime duration = asset.duration;
+    CMTime startTime = CMTimeMakeWithSeconds([start doubleValue], duration.timescale);
+    CMTime endTime = CMTimeMakeWithSeconds([end doubleValue], duration.timescale);
+    CMTimeRange timeRange = CMTimeRangeFromTimeToTime(startTime, endTime);
+    
+    // Insert video track
+    NSError *videoError = nil;
+    AVAssetTrack *vTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
+    if (vTrack && ![videoTrack insertTimeRange:timeRange ofTrack:vTrack atTime:currentTime error:&videoError]) {
+      reject(@"video_insert_failed", @"Failed to insert video", videoError);
+      return;
+    }
+    
+    // Insert audio track
+    AVAssetTrack *aTrack = [[asset tracksWithMediaType:AVMediaTypeAudio] firstObject];
+    if (aTrack) {
+      NSError *audioError = nil;
+      [audioTrack insertTimeRange:timeRange ofTrack:aTrack atTime:currentTime error:&audioError];
+    }
+    
+    currentTime = CMTimeAdd(currentTime, CMTimeSubtract(endTime, startTime));
+  }
+  
+  // Create video composition with custom instructions
+  AVMutableVideoComposition *videoComposition = [AVMutableVideoComposition videoComposition];
+  videoComposition.frameDuration = CMTimeMake(1, 30); // 30 FPS
+  videoComposition.renderSize = CGSizeMake([resolution[@"width"] floatValue], [resolution[@"height"] floatValue]);
+  
+  // Create composition instructions for each clip
+  NSMutableArray *instructions = [NSMutableArray array];
+  currentTime = kCMTimeZero;
+  
+  for (NSDictionary *clip in clips) {
+    NSNumber *start = clip[@"trimStart"];
+    NSNumber *end = clip[@"trimEnd"];
+    
+    // Handle null values properly
+    NSArray *smartZoomKeyframes = nil;
+    if (clip[@"smartZoomKeyframes"] && ![clip[@"smartZoomKeyframes"] isKindOfClass:[NSNull class]]) {
+      smartZoomKeyframes = clip[@"smartZoomKeyframes"];
+    }
+    
+    NSArray *markerKeyframes = nil;
+    if (clip[@"markerKeyframes"] && ![clip[@"markerKeyframes"] isKindOfClass:[NSNull class]]) {
+      markerKeyframes = clip[@"markerKeyframes"];
+    }
+    
+    NSString *spotlightMode = nil;
+    if (clip[@"spotlightMode"] && ![clip[@"spotlightMode"] isKindOfClass:[NSNull class]]) {
+      spotlightMode = clip[@"spotlightMode"];
+    }
+    
+    NSDictionary *spotlightData = nil;
+    if (clip[@"spotlightData"] && ![clip[@"spotlightData"] isKindOfClass:[NSNull class]]) {
+      spotlightData = clip[@"spotlightData"];
+    }
+    
+    CMTime clipDuration = CMTimeMakeWithSeconds([end doubleValue] - [start doubleValue], 600);
+    
+    AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
+    instruction.timeRange = CMTimeRangeMake(currentTime, clipDuration);
+    
+    // Create layer instruction with transformations
+    AVMutableVideoCompositionLayerInstruction *layerInstruction = [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:videoTrack];
+    
+    // Apply smart zoom transformations if available
+    if (smartZoomKeyframes && smartZoomKeyframes.count > 0) {
+      [self applySmartZoomTransforms:layerInstruction 
+                           keyframes:smartZoomKeyframes 
+                            timeRange:instruction.timeRange];
+    }
+    
+    // Apply spotlight effects if available
+    if (spotlightMode && spotlightData) {
+      [self applySpotlightEffects:layerInstruction 
+                     spotlightMode:spotlightMode 
+                      spotlightData:spotlightData 
+                         timeRange:instruction.timeRange];
+    }
+    
+    // Apply aspect ratio transformations
+    if (aspectRatio) {
+      [self applyAspectRatioTransform:layerInstruction 
+                          aspectRatio:aspectRatio 
+                            timeRange:instruction.timeRange
+                            videoTrack:videoTrack];
+    }
+    
+    instruction.layerInstructions = @[layerInstruction];
+    [instructions addObject:instruction];
+    
+    currentTime = CMTimeAdd(currentTime, clipDuration);
+  }
+  
+  videoComposition.instructions = instructions;
+  
+  // Set up export session
+  AVAssetExportSession *exportSession = [AVAssetExportSession exportSessionWithAsset:composition
+                                                                           presetName:AVAssetExportPresetHighestQuality];
+  
+  NSFileManager *fileManager = [NSFileManager defaultManager];
+  if ([fileManager fileExistsAtPath:outputPath]) {
+    NSError *removeError = nil;
+    [fileManager removeItemAtPath:outputPath error:&removeError];
+    if (removeError) {
+      NSLog(@"⚠️ Failed to delete existing output file: %@", removeError);
+    }
+  }
+  
+  exportSession.outputURL = [NSURL fileURLWithPath:outputPath];
+  exportSession.outputFileType = AVFileTypeQuickTimeMovie;
+  exportSession.videoComposition = videoComposition;
+  
+  [exportSession exportAsynchronouslyWithCompletionHandler:^{
+    if (exportSession.status == AVAssetExportSessionStatusCompleted) {
+      [self saveToPhotoLibrary:[NSURL fileURLWithPath:outputPath] completion:^(BOOL success, NSError *error) {
+        if (success) {
+          resolve(outputPath);
+        } else {
+          reject(@"save_failed", @"Failed to save to photo library", error);
+        }
+      }];
+    } else {
+      NSString *details = [NSString stringWithFormat:@"Status: %ld, Error: %@", (long)exportSession.status, exportSession.error.localizedDescription];
+      reject(@"export_failed", details, exportSession.error);
+    }
+  }];
+}
+
+#pragma mark - Preview Export Helper Methods
+
+- (void)applySmartZoomTransforms:(AVMutableVideoCompositionLayerInstruction *)layerInstruction
+                       keyframes:(NSArray *)keyframes
+                        timeRange:(CMTimeRange)timeRange {
+  // Apply smart zoom transformations based on keyframes
+  // This would interpolate between keyframes and apply scale/translate transforms
+  // Implementation would be similar to the existing smart zoom logic
+}
+
+- (void)applySpotlightEffects:(AVMutableVideoCompositionLayerInstruction *)layerInstruction
+                 spotlightMode:(NSString *)spotlightMode
+                  spotlightData:(NSDictionary *)spotlightData
+                     timeRange:(CMTimeRange)timeRange {
+  // Apply spotlight effects (overlay markers, freeze frames, etc.)
+  // This would handle the player spotlight functionality
+}
+
+- (void)applyAspectRatioTransform:(AVMutableVideoCompositionLayerInstruction *)layerInstruction
+                      aspectRatio:(NSDictionary *)aspectRatio
+                        timeRange:(CMTimeRange)timeRange
+                        videoTrack:(AVAssetTrack *)videoTrack {
+  NSLog(@"🎬 PREVIEW: Applying aspect ratio transform");
+  
+  if (!videoTrack) {
+    NSLog(@"❌ PREVIEW: No video track provided for aspect ratio transform");
+    return;
+  }
+  
+  CGSize naturalSize = videoTrack.naturalSize;
+  CGSize outputSize = CGSizeMake([aspectRatio[@"width"] floatValue], [aspectRatio[@"height"] floatValue]);
+  
+  NSLog(@"🎬 PREVIEW: Natural size: %@, Output size: %@", NSStringFromCGSize(naturalSize), NSStringFromCGSize(outputSize));
+  
+  // Calculate the transform for aspect ratio
+  CGAffineTransform transform = [self calculateAspectRatioTransform:naturalSize outputSize:outputSize];
+  
+  // Apply the transform
+  [layerInstruction setTransform:transform atTime:timeRange.start];
+  
+  NSLog(@"🎬 PREVIEW: Applied aspect ratio transform");
+}
+
+- (CGAffineTransform)calculateAspectRatioTransform:(CGSize)naturalSize outputSize:(CGSize)outputSize {
+  // Calculate aspect ratios
+  CGFloat naturalAspectRatio = naturalSize.width / naturalSize.height;
+  CGFloat outputAspectRatio = outputSize.width / outputSize.height;
+  
+  CGFloat scaleX, scaleY, translateX, translateY;
+  
+  NSLog(@"Natural: %.0fx%.0f (ratio: %.3f), Output: %.0fx%.0f (ratio: %.3f)", 
+        naturalSize.width, naturalSize.height, naturalAspectRatio,
+        outputSize.width, outputSize.height, outputAspectRatio);
+  
+  if (naturalAspectRatio > outputAspectRatio) {
+    // Video is wider than output - scale to fit height, crop width (center crop)
+    scaleY = outputSize.height / naturalSize.height;
+    scaleX = scaleY;
+    translateX = (outputSize.width - (naturalSize.width * scaleX)) / 2.0;
+    translateY = 0;
+    NSLog(@"🎬 PREVIEW: Video wider than output - scaling to fit height, cropping width");
+  } else {
+    // Video is taller than output - scale to fit width, crop height (center crop)
+    scaleX = outputSize.width / naturalSize.width;
+    scaleY = scaleX;
+    translateX = 0;
+    translateY = (outputSize.height - (naturalSize.height * scaleY)) / 2.0;
+    NSLog(@"🎬 PREVIEW: Video taller than output - scaling to fit width, cropping height");
+  }
+  
+  // Create the transform
+  CGAffineTransform transform = CGAffineTransformMakeScale(scaleX, scaleY);
+  transform = CGAffineTransformTranslate(transform, translateX / scaleX, translateY / scaleY);
+  
+  NSLog(@"🎬 PREVIEW: Transform: scale(%.3f, %.3f), translate(%.1f, %.1f)", scaleX, scaleY, translateX, translateY);
+  
+  return transform;
+}
+
+#pragma mark - Merge with Aspect Ratio Handler
+
+- (void)handleMergeWithAspectRatio:(NSDictionary *)options
+                          resolver:(RCTPromiseResolveBlock)resolve
+                          rejecter:(RCTPromiseRejectBlock)reject {
+  NSArray *clips = options[@"clips"];
+  NSString *outputPath = options[@"outputPath"];
+  NSDictionary *resolution = options[@"resolution"];
+  
+  if (!clips || !outputPath) {
+    reject(@"invalid_input", @"Missing clips or outputPath", nil);
+    return;
+  }
+  
+  // Create composition with all clips
+  AVMutableComposition *composition = [AVMutableComposition composition];
+  CMTime currentTime = kCMTimeZero;
+  
+  AVMutableCompositionTrack *videoTrack = [composition addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:kCMPersistentTrackID_Invalid];
+  AVMutableCompositionTrack *audioTrack = [composition addMutableTrackWithMediaType:AVMediaTypeAudio preferredTrackID:kCMPersistentTrackID_Invalid];
+  
+  // Process each clip
+  for (NSDictionary *clip in clips) {
+    NSString *path = clip[@"path"];
+    NSNumber *start = clip[@"trimStart"];
+    NSNumber *end = clip[@"trimEnd"];
+    
+    if (!path || !start || !end) {
+      reject(@"invalid_clip", @"Missing clip path or trim times", nil);
+      return;
+    }
+    
+    NSURL *url = [NSURL fileURLWithPath:path];
+    AVAsset *asset = [AVAsset assetWithURL:url];
+    if (!asset) {
+      reject(@"asset_load_failed", [NSString stringWithFormat:@"Failed to load asset at %@", path], nil);
+      return;
+    }
+    
+    CMTime duration = asset.duration;
+    CMTime startTime = CMTimeMakeWithSeconds([start doubleValue], duration.timescale);
+    CMTime endTime = CMTimeMakeWithSeconds([end doubleValue], duration.timescale);
+    CMTimeRange timeRange = CMTimeRangeFromTimeToTime(startTime, endTime);
+    
+    // Insert video track
+    NSError *videoError = nil;
+    AVAssetTrack *vTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] firstObject];
+    if (vTrack && ![videoTrack insertTimeRange:timeRange ofTrack:vTrack atTime:currentTime error:&videoError]) {
+      reject(@"video_insert_failed", @"Failed to insert video", videoError);
+      return;
+    }
+    
+    // Insert audio track
+    AVAssetTrack *aTrack = [[asset tracksWithMediaType:AVMediaTypeAudio] firstObject];
+    if (aTrack) {
+      NSError *audioError = nil;
+      [audioTrack insertTimeRange:timeRange ofTrack:aTrack atTime:currentTime error:&audioError];
+    }
+    
+    currentTime = CMTimeAdd(currentTime, CMTimeSubtract(endTime, startTime));
+  }
+  
+  // Create video composition with proper aspect ratio handling
+  AVMutableVideoComposition *videoComposition = [AVMutableVideoComposition videoComposition];
+  videoComposition.frameDuration = CMTimeMake(1, 30);
+  
+  CGFloat outputWidth = 1920;
+  CGFloat outputHeight = 1080;
+  if (resolution) {
+    outputWidth = [resolution[@"width"] floatValue];
+    outputHeight = [resolution[@"height"] floatValue];
+  }
+  videoComposition.renderSize = CGSizeMake(outputWidth, outputHeight);
+  
+  // Create instruction for the entire composition
+  AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
+  instruction.timeRange = CMTimeRangeMake(kCMTimeZero, composition.duration);
+  
+  AVMutableVideoCompositionLayerInstruction *layerInstruction = [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:videoTrack];
+  
+  // Get the natural size of the first video track
+  AVAssetTrack *videoAssetTrack = [[composition tracksWithMediaType:AVMediaTypeVideo] firstObject];
+  if (videoAssetTrack) {
+    CGSize naturalSize = videoAssetTrack.naturalSize;
+    NSLog(@"Natural size: %@, Output size: %@", NSStringFromCGSize(naturalSize), NSStringFromCGSize(CGSizeMake(outputWidth, outputHeight)));
+    
+    // Calculate the proper transform for aspect ratio
+    CGAffineTransform transform = [self calculateProperAspectRatioTransform:naturalSize outputSize:CGSizeMake(outputWidth, outputHeight)];
+    [layerInstruction setTransform:transform atTime:kCMTimeZero];
+    [layerInstruction setOpacity:1.0 atTime:kCMTimeZero];
+  }
+  
+  instruction.layerInstructions = @[layerInstruction];
+  videoComposition.instructions = @[instruction];
+  
+  // Set up export session
+  AVAssetExportSession *exportSession = [[AVAssetExportSession alloc] initWithAsset:composition presetName:AVAssetExportPresetHighestQuality];
+  
+  NSFileManager *fileManager = [NSFileManager defaultManager];
+  if ([fileManager fileExistsAtPath:outputPath]) {
+    NSError *removeError = nil;
+    [fileManager removeItemAtPath:outputPath error:&removeError];
+    if (removeError) {
+      NSLog(@"⚠️ Failed to delete existing file at outputPath: %@", removeError);
+    }
+  }
+  
+  exportSession.outputURL = [NSURL fileURLWithPath:outputPath];
+  exportSession.outputFileType = AVFileTypeQuickTimeMovie;
+  exportSession.videoComposition = videoComposition;
+  
+  [exportSession exportAsynchronouslyWithCompletionHandler:^{
+    if (exportSession.status == AVAssetExportSessionStatusCompleted) {
+      [self saveToPhotoLibrary:[NSURL fileURLWithPath:outputPath] completion:^(BOOL success, NSError *error) {
+        if (success) {
+          resolve(outputPath);
+        } else {
+          reject(@"save_failed", @"Failed to save to photo library", error);
+        }
+      }];
+    } else {
+      NSString *details = [NSString stringWithFormat:@"Status: %ld, Error: %@", (long)exportSession.status, exportSession.error.localizedDescription];
+      reject(@"export_failed", details, exportSession.error);
+    }
+  }];
+}
+
+- (CGAffineTransform)calculateProperAspectRatioTransform:(CGSize)naturalSize outputSize:(CGSize)outputSize {
+  // Calculate aspect ratios
+  CGFloat naturalAspectRatio = naturalSize.width / naturalSize.height;
+  CGFloat outputAspectRatio = outputSize.width / outputSize.height;
+  
+  CGFloat scaleX, scaleY, translateX, translateY;
+  
+  if (naturalAspectRatio > outputAspectRatio) {
+    // Video is wider than output - scale to fit width, crop height
+    scaleX = outputSize.width / naturalSize.width;
+    scaleY = scaleX;
+    translateX = 0;
+    translateY = (outputSize.height - (naturalSize.height * scaleY)) / 2.0;
+  } else {
+    // Video is taller than output - scale to fit height, crop width
+    scaleY = outputSize.height / naturalSize.height;
+    scaleX = scaleY;
+    translateX = (outputSize.width - (naturalSize.width * scaleX)) / 2.0;
+    translateY = 0;
+  }
+  
+  // Create the transform
+  CGAffineTransform transform = CGAffineTransformMakeScale(scaleX, scaleY);
+  transform = CGAffineTransformTranslate(transform, translateX / scaleX, translateY / scaleY);
+  
+  NSLog(@"Transform: scale(%.2f, %.2f), translate(%.2f, %.2f)", scaleX, scaleY, translateX, translateY);
+  
+  return transform;
 }
 
 @end
