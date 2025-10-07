@@ -190,6 +190,15 @@ RCT_EXPORT_METHOD(saveToCameraRoll:(NSString *)videoPath
   NSArray *clips = options[@"clips"];
   NSString *outputPath = options[@"outputPath"];
   NSDictionary *resolution = options[@"resolution"];
+  
+  // Generate output path if not provided
+  if (!outputPath) {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *documentsDirectory = [paths objectAtIndex:0];
+    NSString *fileName = [NSString stringWithFormat:@"merged_output_%ld.mov", (long)[[NSDate date] timeIntervalSince1970]];
+    outputPath = [documentsDirectory stringByAppendingPathComponent:fileName];
+    NSLog(@"🎬 MERGE: Generated output path: %@", outputPath);
+  }
 
   AVMutableComposition *composition = [AVMutableComposition composition];
   CMTime currentTime = kCMTimeZero;

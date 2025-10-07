@@ -13,6 +13,23 @@ import com.athletespark.videoeditor.SmartZoomRenderer
 import com.athletespark.videoeditor.CodecOutputSurface
 import com.facebook.react.bridge.ReadableMap
 
+data class PreviewClip(
+    val path: String,
+    val trimStartUs: Long,
+    val trimEndUs: Long,
+    val smartZoomKeyframes: List<MarkerKeyframe>? = null,
+    val markerKeyframes: List<MarkerKeyframe>? = null,
+    val spotlightMode: String? = null,
+    val spotlightData: ReadableMap? = null
+)
+
+data class MarkerKeyframe(
+    val timeUs: Long,
+    val x: Float,
+    val y: Float,
+    val scale: Float = 1.0f
+)
+
 class PreviewExportProcessor(private val context: Context) {
 
     companion object {
@@ -156,11 +173,21 @@ class PreviewExportProcessor(private val context: Context) {
         decoder.configure(inputFormat, outputSurface.surface, null, 0)
         decoder.start()
         
+        // Convert MarkerKeyframe to FrameCenter for smart zoom
+        val smartZoomFrames = clip.smartZoomKeyframes?.map { keyframe ->
+            FrameCenter(
+                timeMs = keyframe.timeUs / 1000, // Convert microseconds to milliseconds
+                centerX = keyframe.x,
+                centerY = keyframe.y,
+                zoom = keyframe.scale
+            )
+        } ?: emptyList()
+        
         // Create enhanced renderer that handles all effects
         val renderer = PreviewRenderer(
             videoWidth, videoHeight, outputWidth, outputHeight,
-            clip.smartZoomKeyframes,
-            clip.markerKeyframes,
+            smartZoomFrames,
+            clip.markerKeyframes ?: emptyList(),
             clip.spotlightMode,
             clip.spotlightData,
             aspectRatio

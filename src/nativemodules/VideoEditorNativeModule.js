@@ -1,17 +1,41 @@
-import { NativeModules } from 'react-native';
+import { NativeModules, Platform } from 'react-native';
 
 const { VideoEditor } = NativeModules;
 
 const VideoEditorNativeModule = {
-  process: (options) => VideoEditor.processVideo(options),
+  process: (options) => {
+    if (Platform.OS === 'ios') {
+      return VideoEditor.processVideo(options);
+    } else {
+      return VideoEditor.process(options);
+    }
+  },
 
-  trim: (options) => VideoEditor.processVideo(options),
+  trim: (options) => {
+    if (Platform.OS === 'ios') {
+      return VideoEditor.processVideo(options);
+    } else {
+      return VideoEditor.process(options);
+    }
+  },
 
-  exportMergedVideo: (options) => VideoEditor.processVideo(options),
+  exportMergedVideo: (options) => {
+    if (Platform.OS === 'ios') {
+      return VideoEditor.processVideo(options);
+    } else {
+      return VideoEditor.process(options);
+    }
+  },
 
   saveToCameraRoll: (videoPath) => VideoEditor.saveToCameraRoll(videoPath),
 
-  smartZoom: (options) => VideoEditor.processVideo(options),
+  smartZoom: (options) => {
+    if (Platform.OS === 'ios') {
+      return VideoEditor.processVideo(options);
+    } else {
+      return VideoEditor.process(options);
+    }
+  },
 };
 
 export default VideoEditorNativeModule;

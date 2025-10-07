@@ -606,8 +606,6 @@ const saveProject = async (patch) => {
         return result;
       });
 
-      const outputPath = `${RNFS.CachesDirectoryPath}/merged_output_${Date.now()}.mov`; // or .mp4
-
       const outputResolution = {
         width: aspectRatio.width,
         height: aspectRatio.height,
@@ -620,7 +618,7 @@ const saveProject = async (patch) => {
         mergedVideoPath = await VideoEditorNativeModule.process({
           type: 'previewExport', // New export type that captures preview view
           clips: clipsToMerge,
-          outputPath,
+          // Let native modules generate unique output paths
           resolution: outputResolution,
           aspectRatio: aspectRatio,
         });
@@ -631,7 +629,7 @@ const saveProject = async (patch) => {
         mergedVideoPath = await VideoEditorNativeModule.process({
           type: 'merge',
           clips: clipsToMerge,
-          outputPath,
+          // Let native modules generate unique output paths
           resolution: outputResolution,
         });
       }
