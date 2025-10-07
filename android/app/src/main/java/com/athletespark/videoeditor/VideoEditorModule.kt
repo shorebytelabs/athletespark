@@ -169,8 +169,7 @@ class VideoEditorModule(reactContext: ReactApplicationContext) : ReactContextBas
     var videoTrackIndex = -1
     var audioTrackIndex = -1
 
-                var videoPresentationTimeUsOffset = 0L
-                var audioPresentationTimeUsOffset = 0L
+                var presentationTimeUsOffset = 0L
 
                 for ((clipIndex, clip) in clips.withIndex()) {
                     Log.d(TAG, "=== PROCESSING CLIP ${clipIndex} ===")
@@ -311,37 +310,58 @@ class VideoEditorModule(reactContext: ReactApplicationContext) : ReactContextBas
                             return lastWrittenPts
                         }
 
-                        // Write video samples with trimming
+                        // Write video and audio samples with trimming
+                        var videoEndPts = presentationTimeUsOffset
+                        var audioEndPts = presentationTimeUsOffset
+                        
                         if (videoTrack != -1) {
                             Log.d(TAG, "=== WRITING VIDEO SAMPLES ===")
                             Log.d(TAG, "Writing video samples for clip ${clipIndex}...")
-                            videoPresentationTimeUsOffset = writeSamples(
+                            videoEndPts = writeSamples(
                                 videoTrackIndex,
                                 videoTrack,
                                 clip.trimStartUs,
                                 clip.trimEndUs,
-                                videoPresentationTimeUsOffset
+                                presentationTimeUsOffset
                             )
                             Log.d(TAG, "Finished writing video samples for clip ${clipIndex}")
                         } else {
                             Log.w(TAG, "No video track found for clip ${clipIndex}")
                         }
 
-                        // Write audio samples with trimming
                         if (audioTrack != -1) {
                             Log.d(TAG, "=== WRITING AUDIO SAMPLES ===")
                             Log.d(TAG, "Writing audio samples for clip ${clipIndex}...")
-                            audioPresentationTimeUsOffset = writeSamples(
+                            audioEndPts = writeSamples(
                                 audioTrackIndex,
                                 audioTrack,
                                 clip.trimStartUs,
                                 clip.trimEndUs,
-                                audioPresentationTimeUsOffset
+                                presentationTimeUsOffset
                             )
                             Log.d(TAG, "Finished writing audio samples for clip ${clipIndex}")
                         } else {
                             Log.w(TAG, "No audio track found for clip ${clipIndex}")
                         }
+                        
+                        // Use the maximum of video and audio end times for the next clip
+                        // This ensures proper sync and prevents transition glitches
+                        val maxEndPts = maxOf(videoEndPts, audioEndPts)
+                        
+                        // Calculate the actual duration of this clip (trimEnd - trimStart)
+                        val clipDuration = clip.trimEndUs - clip.trimStartUs
+                        Log.d(TAG, "Clip ${clipIndex} duration: ${clipDuration}us (${clipDuration / 1000}ms)")
+                        
+                        // The next offset should be the current offset + the actual clip duration
+                        // This ensures seamless transitions without gaps
+                        presentationTimeUsOffset = presentationTimeUsOffset + clipDuration
+                        
+                        Log.d(TAG, "Calculated next offset: $presentationTimeUsOffset (current: ${presentationTimeUsOffset - clipDuration} + duration: $clipDuration)")
+                        
+                        Log.d(TAG, "=== CLIP ${clipIndex} COMPLETE ===")
+                        Log.d(TAG, "Video end PTS: $videoEndPts")
+                        Log.d(TAG, "Audio end PTS: $audioEndPts")
+                        Log.d(TAG, "Next offset (with buffer): $presentationTimeUsOffset")
 
                     } finally {
                         extractor.release()
