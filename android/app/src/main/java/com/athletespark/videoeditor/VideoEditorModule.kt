@@ -75,17 +75,161 @@ class VideoEditorModule(reactContext: ReactApplicationContext) : ReactContextBas
             Log.d(TAG, "Resolution: $resolution")
             Log.d(TAG, "Aspect ratio: $aspectRatio")
             
-            // For aspect ratio handling, we need to use PreviewExportProcessor
-            // which properly handles video transformation using MediaCodec
-            // For now, fall back to merge which should work better
-            Log.d(TAG, "Falling back to merge for proper video handling")
-            handleMerge(clips, resolution, promise)
+            // If resolution is provided, process each clip separately and then merge
+            if (resolution != null) {
+                val outputWidth = resolution.getInt("width")
+                val outputHeight = resolution.getInt("height")
+                
+                Log.d(TAG, "Processing clips with aspect ratio transformation: ${outputWidth}x${outputHeight}")
+                
+                val videoClips = parseVideoClips(clips)
+                val outputPath = createOutputPath("preview_export.mp4")
+                
+                // Process clips separately and merge
+                processClipsWithAspectRatio(
+                    videoClips = videoClips,
+                    outputPath = outputPath,
+                    outputWidth = outputWidth,
+                    outputHeight = outputHeight,
+                    promise = promise
+                )
+            } else {
+                // No resolution specified, fall back to basic merge
+                Log.d(TAG, "No resolution specified, falling back to basic merge")
+                handleMerge(clips, resolution, promise)
+            }
     } catch (e: Exception) {
             Log.e(TAG, "Preview export error: ${e.message}", e)
             promise.reject("PREVIEW_EXPORT_ERROR", e.message)
         }
     }
 
+    private fun processClipsWithAspectRatio(
+        videoClips: List<VideoClip>,
+        outputPath: String,
+        outputWidth: Int,
+        outputHeight: Int,
+        promise: Promise
+    ) {
+        thread {
+            try {
+                Log.d(TAG, "=== PROCESSING CLIPS WITH ASPECT RATIO ===")
+                Log.d(TAG, "Clips: ${videoClips.size}")
+                Log.d(TAG, "Target resolution: ${outputWidth}x${outputHeight}")
+                
+                val transformedClips = mutableListOf<File>()
+                
+                // Process each clip separately with aspect ratio transformation
+                for ((index, clip) in videoClips.withIndex()) {
+                    Log.d(TAG, "=== PROCESSING CLIP $index ===")
+                    
+                    val tempOutputPath = File(reactApplicationContext.cacheDir, "temp_clip_${index}_${System.currentTimeMillis()}.mp4").absolutePath
+                    
+                    val processor = AspectRatioProcessor(reactApplicationContext)
+                    var processingComplete = false
+                    var processingError: String? = null
+                    
+                    processor.processWithAspectRatio(
+                        clips = listOf(
+                            AspectRatioProcessor.ProcessingClip(
+                                path = clip.path,
+                                trimStartUs = clip.trimStartUs,
+                                trimEndUs = clip.trimEndUs
+                            )
+                        ),
+                        outputPath = tempOutputPath,
+                        outputWidth = outputWidth,
+                        outputHeight = outputHeight,
+                        onComplete = {
+                            transformedClips.add(File(tempOutputPath))
+                            processingComplete = true
+                            Log.d(TAG, "Clip $index transformed successfully")
+                        },
+                        onError = { error ->
+                            processingError = error
+                            processingComplete = true
+                            Log.e(TAG, "Clip $index transformation failed: $error")
+                        }
+                    )
+                    
+                    // Wait for processing to complete (with timeout)
+                    var timeoutCounter = 0
+                    val maxTimeout = 600 // 60 seconds (600 * 100ms)
+                    
+                    while (!processingComplete && timeoutCounter < maxTimeout) {
+                        Thread.sleep(100)
+                        timeoutCounter++
+                    }
+                    
+                    if (!processingComplete) {
+                        Log.e(TAG, "Clip $index processing timed out after ${maxTimeout / 10} seconds")
+                        throw Exception("Clip $index processing timed out")
+                    }
+                    
+                    if (processingError != null) {
+                        throw Exception("Failed to process clip $index: $processingError")
+                    }
+                }
+                
+                Log.d(TAG, "=== ALL CLIPS TRANSFORMED ===")
+                Log.d(TAG, "Transformed clips: ${transformedClips.size}")
+                
+                // Now merge the transformed clips using basic merge (no aspect ratio needed)
+                val transformedVideoClips = transformedClips.mapIndexed { index, file ->
+                    // Get the actual duration of each transformed clip
+                    var duration = 10_000_000L // Default 10 seconds
+                    try {
+                        val retriever = MediaMetadataRetriever()
+                        retriever.setDataSource(file.absolutePath)
+                        val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 10000L
+                        duration = durationMs * 1000 // Convert to microseconds
+                        retriever.release()
+                        Log.d(TAG, "Transformed clip $index duration: ${duration}us")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Failed to get duration for clip $index: ${e.message}")
+                    }
+                    
+                    VideoClip(
+                        path = file.absolutePath,
+                        trimStartUs = 0L, // Already trimmed
+                        trimEndUs = duration // Use actual clip duration
+                    )
+                }
+                
+                mergeVideosWithAspectRatio(
+                    reactApplicationContext,
+                    transformedVideoClips,
+                    outputPath,
+                    null, // No resolution needed - already transformed
+                    onComplete = { result ->
+                        Log.d(TAG, "=== FINAL MERGE COMPLETE ===")
+                        Log.d(TAG, "Final video: $result")
+                        
+                        // Clean up temporary files
+                        transformedClips.forEach { 
+                            Log.d(TAG, "Deleting temp file: ${it.absolutePath}")
+                            it.delete() 
+                        }
+                        
+                        Log.d(TAG, "All temporary files cleaned up")
+                        promise.resolve(result)
+                    },
+                    onError = { error ->
+                        Log.e(TAG, "Final merge failed: $error")
+                        
+                        // Clean up temporary files
+                        transformedClips.forEach { it.delete() }
+                        promise.reject("MERGE_FAILED", error)
+                    }
+                )
+
+    } catch (e: Exception) {
+                Log.e(TAG, "Error processing clips with aspect ratio: ${e.message}", e)
+                promise.reject("PROCESSING_ERROR", e.message)
+            }
+        }
+    }
+    
     private fun handleMerge(
         clips: ReadableArray,
         resolution: ReadableMap?,
